@@ -77,10 +77,13 @@ abstract class DistributedMatrix(
 
   def aggregateElements[U: ClassTag](zeroValue: U)(seqOp: (U, Double) => U, combOp: (U, U) => U): U
 
-  // def reduceRowElements(f: (Double, Double) => Double): DistributedMatrix
-  // def reduceColElements(f: (Double, Double) => Double): DistributedMatrix
+  /** Reduce each row using an associative `f`.  Example usage includes getting a row sum vector. */
+  def reduceRowElements(f: (Double, Double) => Double): DistributedMatrix = ???
+
+  /** Reduce each column using an associative `f`.  Example usage includes getting a column sum vector. */
+  def reduceColElements(f: (Double, Double) => Double): Seq[Double] = ???
   
-  // rowSums, colSums if we want ?
+  def rowSums(): Seq[Double] = ???
 
   //
   // Matrix-Matrix operations

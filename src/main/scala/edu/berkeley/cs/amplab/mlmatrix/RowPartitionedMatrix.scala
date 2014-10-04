@@ -93,6 +93,23 @@ class RowPartitionedMatrix(
     }.reduce(combOp)
   }
 
+  override def reduceRowElements(f: (Double, Double) => Double): DistributedMatrix = {
+    val reducedRows = rdd.map { rowPart =>
+      // get row-major layout by transposing
+      val rows = rowPart.mat.data.grouped(rowPart.mat.rows).toSeq.transpose
+      val reduced = rows.map(_.reduce(f)).toArray
+      RowPartition(new DenseMatrix[Double](rowPart.mat.rows, 1, reduced))
+    }
+    new RowPartitionedMatrix(reducedRows, rows, Some(1))
+  }
+
+  override def rowSums(): Seq[Double] = {
+    val rowSumMat = reduceRowElements(_ + _)
+    rowSumMat.asInstanceOf[RowPartitionedMatrix].rdd.map { rowPart =>
+      rowPart.mat.toArray
+    }.collect().flatten
+  }
+
   override def +(other: DistributedMatrix) = {
     other match {
       case otherBlocked: RowPartitionedMatrix =>
@@ -176,7 +193,7 @@ object RowPartitionedMatrix {
 
   def fromArray(
       matrixRDD: RDD[Array[Double]],
-      rowsPerPartition: Array[Int],
+      rowsPerPartition: Seq[Int],
       cols: Int): RowPartitionedMatrix = {
     new RowPartitionedMatrix(
       arrayToMatrix(matrixRDD, rowsPerPartition, cols).map(mat => RowPartition(mat)),
@@ -185,7 +202,7 @@ object RowPartitionedMatrix {
 
   def arrayToMatrix(
       matrixRDD: RDD[Array[Double]],
-      rowsPerPartition: Array[Int],
+      rowsPerPartition: Seq[Int],
       cols: Int) = {
     val rBroadcast = matrixRDD.context.broadcast(rowsPerPartition)
     val data = matrixRDD.mapPartitionsWithIndex { case (part, iter) =>
