@@ -13,7 +13,7 @@ abstract class DistributedMatrix(
   // Matrix dimensions
   //
   private var dim_ : (Option[Long], Option[Long]) = (rows, cols)
-  protected def getDim: (Long, Long)
+  protected def getDim(): (Long, Long)
 
   def numRows(): Long = {
     dim._1.get
@@ -39,9 +39,9 @@ abstract class DistributedMatrix(
   // Matrix indexing
   //
   // Extract a subset of rows and/or columns
-  // def apply(rowRange: Range, colRange: Range): DistributedMatrix
   def apply(rowRange: ::.type, colRange: Range): DistributedMatrix
   def apply(rowRange: Range, colRange: ::.type): DistributedMatrix
+  def apply(rowRange: Range, colRange: Range): DistributedMatrix
 
   //
   // Element-wise operations

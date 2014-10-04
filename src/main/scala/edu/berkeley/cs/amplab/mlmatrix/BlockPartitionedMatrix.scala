@@ -262,6 +262,8 @@ class BlockPartitionedMatrix(
     new BlockPartitionedMatrix(numRowBlocks, blocksWithCols.length, blockRDD)
   }
 
+  override def apply(rowRange: Range, colRange: Range) = ???
+
   override def cache() = {
     rdd.cache()
     this

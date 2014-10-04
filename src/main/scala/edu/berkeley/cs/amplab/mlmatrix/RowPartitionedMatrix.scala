@@ -121,7 +121,7 @@ class RowPartitionedMatrix(
           // Check if matrices share same partitioner and can be zipped
           if (rdd.partitions.size == otherBlocked.rdd.partitions.size) {
             new RowPartitionedMatrix(rdd.zip(otherBlocked.rdd).map { case (lm, otherLM) =>
-              RowPartition(lm.mat :+ (otherLM.mat))
+              RowPartition(lm.mat :+ otherLM.mat)
             }, rows, cols)
           } else {
             throw new SparkException(
@@ -136,6 +136,16 @@ class RowPartitionedMatrix(
   }
 
   override def apply(rowRange: Range, colRange: ::.type) = {
+    this.apply(rowRange, Range(0, numCols().toInt))
+  }
+
+  override def apply(rowRange: ::.type, colRange: Range) = {
+    new RowPartitionedMatrix(rdd.map { lm =>
+      RowPartition(lm.mat(::, colRange))
+    })
+  }
+
+  override def apply(rowRange: Range, colRange: Range) = {
     // TODO: Make this a class member
     val partitionBroadcast = rdd.sparkContext.broadcast(getPartitionInfo)
 
@@ -143,21 +153,15 @@ class RowPartitionedMatrix(
     RowPartitionedMatrix.fromMatrix(rdd.mapPartitionsWithIndex { case (part, iter) =>
       val startRows = partitionBroadcast.value(part).sortBy(x => x.blockId).map(x => x.startRow)
       iter.zip(startRows.iterator).flatMap { case (lm, sr) =>
-        if (sr >= rowRange.start) {
+        if (sr >= rowRange.start && sr < rowRange.end) {
           // The end row is min of number of rows in this partition
           // and number of rows left to read
           val er = min(lm.mat.rows, (rowRange.end - sr).toInt)
-          Iterator(lm.mat(0 until er, ::))
+          Iterator(lm.mat(0 until er, colRange))
         } else {
           Iterator()
         }
       }
-    })
-  }
-
-  override def apply(rowRange: ::.type, colRange: Range) = {
-    new RowPartitionedMatrix(rdd.map { lm =>
-      RowPartition(lm.mat(::, colRange))
     })
   }
 
@@ -170,7 +174,7 @@ class RowPartitionedMatrix(
   // Make this more efficient
   override def collect(): DenseMatrix[Double] = {
     val parts = rdd.map(x => x.mat).collect()
-    parts.reduceLeft((a,b) => DenseMatrix.vertcat(a, b))
+    parts.reduceLeftOption((a,b) => DenseMatrix.vertcat(a, b)).getOrElse(new DenseMatrix[Double](0, 0))
   }
 
   // Apply a function to each partition of the matrix
@@ -230,7 +234,7 @@ object RowPartitionedMatrix {
   def arrayToMatrix(matrixRDD: RDD[Array[Double]]): RDD[DenseMatrix[Double]] = {
     val rowsColsPerPartition = matrixRDD.mapPartitionsWithIndex { case (part, iter) =>
       if (iter.hasNext) {
-        val nCols = iter.next.size
+        val nCols = iter.next().size
         Iterator((part, 1 + iter.size, nCols))
       } else {
         Iterator((part, 0, 0))

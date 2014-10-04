@@ -62,4 +62,26 @@ class RowPartitionedMatrixSuite extends FunSuite with LocalSparkContext with Log
     assert(testMat.rowSums() === Seq(6, 9, 1, 1), "rowSums() returns incorrect sums!")
   }
 
+  test("slicing using various apply() methods") {
+    sc = new SparkContext("local", "test")
+    val testMat = RowPartitionedMatrix.fromArray(
+      sc.parallelize(Seq(
+        Array[Double](1, 2, 3),
+        Array[Double](1, 9, -1),
+        Array[Double](0, 1618, 1),
+        Array[Double](0, 1, 0)
+      ), 4), // row-major, laid out as is
+      Seq(1, 1, 1, 1),
+      3
+    )
+    assert(testMat(::, Range(1, 2)).collect().toArray === Array(2, 9, 1618, 1))
+    assert(testMat(::, Range(1, 3)).collect().toArray === Array(2, 9, 1618, 1, 3, -1, 1, 0))
+    assert(testMat(Range(1, 2), ::).collect().toArray === Array(1, 9, -1))
+    assert(testMat(Range(0, 5), ::).collect().toArray === testMat.collect().toArray)
+    assert(testMat(Range(2, 3), Range(1, 2)).collect().toArray.head === 1618)
+    assert(testMat(Range(2, 3), Range(1, 3)).collect().toArray === Array(1618, 1))
+
+    assert(testMat(Range(2, 2), Range(1, 3)).collect().toArray.isEmpty)
+  }
+
 }
