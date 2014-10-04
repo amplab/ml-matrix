@@ -115,10 +115,7 @@ class RowPartitionedMatrix(
   }
 
   override def rowSums(): Seq[Double] = {
-    val rowSumMat = reduceRowElements(_ + _)
-    rowSumMat.asInstanceOf[RowPartitionedMatrix].rdd.map { rowPart =>
-      rowPart.mat.toArray
-    }.collect().flatten
+    reduceRowElements(_ + _).collect().toArray
   }
 
   override def colSums(): Seq[Double] = {
