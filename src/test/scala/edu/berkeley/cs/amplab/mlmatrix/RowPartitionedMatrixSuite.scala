@@ -25,7 +25,7 @@ class RowPartitionedMatrixSuite extends FunSuite with LocalSparkContext with Log
     assert(rowProducts.numCols() === 1, "reduceRowElements() returns a result with incorrect col count!")
   }
 
-  test("reduceColElements()") {
+  test("reduceColElements() and colSums()") {
     sc = new SparkContext("local", "test")
     val testMat = RowPartitionedMatrix.fromArray(
       sc.parallelize(Seq(
@@ -43,6 +43,8 @@ class RowPartitionedMatrixSuite extends FunSuite with LocalSparkContext with Log
       "reduceColElements() does not return correct answers!")
     assert(colProducts.numRows() === 1, "reduceColElements() returns a result with incorrect row count!")
     assert(colProducts.numCols() === 3, "reduceColElements() returns a result with incorrect col count!")
+
+    assert(testMat.colSums() === Seq(1621, 12, 7), "colSums() returns incorrect sums!")
   }
 
   test("rowSums()") {

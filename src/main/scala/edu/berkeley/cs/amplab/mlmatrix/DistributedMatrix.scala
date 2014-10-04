@@ -91,6 +91,8 @@ abstract class DistributedMatrix(
   
   def rowSums(): Seq[Double] = ???
 
+  def colSums(): Seq[Double] = ???
+
   //
   // Matrix-Matrix operations
   // 
