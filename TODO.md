@@ -1,6 +1,5 @@
 Matrix Formats
   1. Add ColumnPartitionedMatrix
-  2. Implement reduce row elements, col elements
   3. Implement apply with row, col range
   4. Transpose
   5. Save / Load

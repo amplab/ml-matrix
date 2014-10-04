@@ -42,4 +42,27 @@ class BlockPartitionedMatrixSuite extends FunSuite with LocalSparkContext with L
     assert(testMat3.rowSums() === expectedRowSums, "rowSums() returns incorrect sums!")
   }
 
+  test("reduceColElements() and colSums()") {
+    sc = new SparkContext("local", "test")
+    val matRDD = sc.parallelize(Seq(
+      Array[Double](1, 2, 1),
+      Array[Double](1, 9, -1),
+      Array[Double](1, 0, 1),
+      Array[Double](7, 1, 1618)
+    ), 1) // row-major, laid out as is
+    val expectedColProducts = Array(7, 0, -1618)
+    val expectedColSums = Seq(10, 12, 1619)
+
+    val testMat = BlockPartitionedMatrix.fromArray(matRDD, 1, 3)  // each block is one row
+    val colProducts = testMat.reduceColElements(_ * _)
+
+    assert(colProducts.collect().toArray === expectedColProducts,
+      "reduceRowElements() does not return correct answers!")
+
+    assert(colProducts.numRows() === 1, "reduceColElements() returns a result with incorrect row count!")
+    assert(colProducts.numCols() === 3, "reduceColElements() returns a result with incorrect col count!")
+
+    assert(testMat.colSums() === expectedColSums, "colSums() returns incorrect sums!")
+  }
+
 }

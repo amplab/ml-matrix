@@ -146,11 +146,34 @@ class BlockPartitionedMatrix(
       .groupByKey(numRowBlocks)
       .map { case (blockRow, blocks) =>
         val reducedBlocks = blocks.reduce(rowWiseReduce).toArray
-
         BlockPartition(blockRow, 0, new DenseMatrix[Double](reducedBlocks.length, 1, reducedBlocks))
       }
 
     new BlockPartitionedMatrix(numRowBlocks, 1, reduced)
+  }
+
+  override def reduceColElements(f: (Double, Double) => Double): DistributedMatrix = {
+    val blockReduced = rdd.map { block =>
+      val cols = block.mat.data.grouped(block.mat.cols).toArray.transpose
+      val reduced = cols.map(_.reduce(f))
+      BlockPartition(block.blockIdRow, block.blockIdCol,
+        new DenseMatrix[Double](1, block.mat.cols, reduced)
+      )
+    }
+
+    def colWiseReduce(block1: Array[Double], block2: Array[Double]): Array[Double] = {
+      block1.zip(block2).map { case (d1, d2) => f(d1, d2) }
+    }
+
+    val reduced = blockReduced
+      .map { block => (block.blockIdCol, block.mat.data) }
+      .groupByKey(numColBlocks)
+      .map { case (blockCol, blocks) =>
+        val reducedBlocks = blocks.reduce(colWiseReduce).toArray
+        BlockPartition(0, blockCol, new DenseMatrix[Double](1, reducedBlocks.length, reducedBlocks))
+    }
+
+    new BlockPartitionedMatrix(1, numColBlocks, reduced)
   }
 
   override def +(other: DistributedMatrix) = {
