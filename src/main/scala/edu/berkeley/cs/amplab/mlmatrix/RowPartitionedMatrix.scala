@@ -114,14 +114,6 @@ class RowPartitionedMatrix(
       rdd.sparkContext.parallelize(Seq(collapsed), 1), Seq(1), numCols().toInt)
   }
 
-  override def rowSums(): Seq[Double] = {
-    reduceRowElements(_ + _).collect().toArray
-  }
-
-  override def colSums(): Seq[Double] = {
-    reduceColElements(_ + _).collect().toArray
-  }
-
   override def +(other: DistributedMatrix) = {
     other match {
       case otherBlocked: RowPartitionedMatrix =>

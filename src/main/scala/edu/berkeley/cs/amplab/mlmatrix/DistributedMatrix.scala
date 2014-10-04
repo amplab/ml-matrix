@@ -88,10 +88,22 @@ abstract class DistributedMatrix(
    * Example usage includes getting a column sum vector.
    */
   def reduceColElements(f: (Double, Double) => Double): DistributedMatrix = ???
-  
-  def rowSums(): Seq[Double] = ???
 
-  def colSums(): Seq[Double] = ???
+  /**
+   * Returns a row sum vector as a materialized Scala [[Seq]] collected to the driver.  By default,
+   * the implementation calls `reduceRowElements`.
+   */
+  def rowSums(): Seq[Double] = {
+    reduceRowElements(_ + _).collect().toArray
+  }
+
+  /**
+   * Returns a column sum vector as a materialized Scala [[Seq]] collected to the driver.  By default,
+   * the implementation calls `reduceColElements`.
+   */
+  def colSums(): Seq[Double] = {
+    reduceColElements(_ + _).collect().toArray
+  }
 
   //
   // Matrix-Matrix operations
