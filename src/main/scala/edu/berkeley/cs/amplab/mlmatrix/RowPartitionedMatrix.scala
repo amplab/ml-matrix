@@ -8,6 +8,7 @@ import breeze.linalg._
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.rdd.RDD
 
+/** Note: [[breeze.linalg.DenseMatrix]] by default uses column-major layout. */
 case class RowPartition(mat: DenseMatrix[Double]) extends Serializable
 case class RowPartitionInfo(
   partitionId: Int, // RDD partition this block is in
@@ -101,6 +102,16 @@ class RowPartitionedMatrix(
       RowPartition(new DenseMatrix[Double](rowPart.mat.rows, 1, reduced))
     }
     new RowPartitionedMatrix(reducedRows, rows, Some(1))
+  }
+
+  override def reduceColElements(f: (Double, Double) => Double): DistributedMatrix = {
+    val reducedColsPerPart = rdd.map { rowPart =>
+      val cols = rowPart.mat.data.grouped(rowPart.mat.rows)
+      cols.map(_.reduce(f)).toArray
+    }
+    val collapsed = reducedColsPerPart.reduce { case arrPair => arrPair.zipped.map(f) }
+    RowPartitionedMatrix.fromArray(
+      rdd.sparkContext.parallelize(Seq(collapsed), 1), Seq(1), numCols().toInt)
   }
 
   override def rowSums(): Seq[Double] = {
