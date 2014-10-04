@@ -128,6 +128,31 @@ class BlockPartitionedMatrix(
     }.reduce(combOp)
   }
 
+  override def reduceRowElements(f: (Double, Double) => Double): DistributedMatrix = {
+    val blockReduced = rdd.map { block =>
+      val rows = block.mat.data.grouped(block.mat.cols)
+      val reduced = rows.map(_.reduce(f)).toArray
+      BlockPartition(block.blockIdRow, block.blockIdCol,
+        new DenseMatrix[Double](block.mat.rows, 1, reduced)
+      )
+    }
+
+    def rowWiseReduce(block1: Array[Double], block2: Array[Double]): Array[Double] = {
+      block1.zip(block2).map { case (d1, d2) => f(d1, d2) }
+    }
+
+    val reduced = blockReduced
+      .map { block => (block.blockIdRow, block.mat.data) }
+      .groupByKey(numRowBlocks)
+      .map { case (blockRow, blocks) =>
+        val reducedBlocks = blocks.reduce(rowWiseReduce).toArray
+
+        BlockPartition(blockRow, 0, new DenseMatrix[Double](reducedBlocks.length, 1, reducedBlocks))
+      }
+
+    new BlockPartitionedMatrix(numRowBlocks, 1, reduced)
+  }
+
   override def +(other: DistributedMatrix) = {
     other match {
       // We really need a function to check if two matrices are partitioned similarly
@@ -230,9 +255,9 @@ class BlockPartitionedMatrix(
       val blockInfo = blockInfos((part._1._1, part._1._2))
       // Figure out where this part should be put
       val rowRange = 
-        blockInfo.startRow.toInt to (blockInfo.startRow + blockInfo.numRows).toInt
+        blockInfo.startRow.toInt until (blockInfo.startRow + blockInfo.numRows).toInt
       val colRange = 
-        blockInfo.startCol.toInt to (blockInfo.startCol + blockInfo.numCols).toInt
+        blockInfo.startCol.toInt until (blockInfo.startCol + blockInfo.numCols).toInt
       mat(rowRange, colRange) := part._2
     }
     mat
@@ -297,7 +322,7 @@ object BlockPartitionedMatrix {
     val cumulativeSum = perPartDims.scanLeft(0L){ case(x1, x2) =>
       x1 + x2._2
     }
-    val numRows = cumulativeSum.takeRight(1)(0)
+    val numRows = cumulativeSum.takeRight(1).head
 
     val rowStarts = perPartDims.zip(cumulativeSum.dropRight(1)).map { x =>
       (x._1._1, (x._2, x._1._3))
@@ -338,6 +363,7 @@ object BlockPartitionedMatrix {
       new BlockPartition(item._1._1, item._1._2,
         new DenseMatrix[Double](numCols, numRows, matData.toArray).t)
     }
+
     new BlockPartitionedMatrix(numRowBlocks, numColBlocks, blockRDD)
   }
 }
