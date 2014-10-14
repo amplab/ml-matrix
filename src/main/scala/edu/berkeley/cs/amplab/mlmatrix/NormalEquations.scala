@@ -5,9 +5,11 @@ import java.util.concurrent.ThreadLocalRandom
 import breeze.linalg._
 
 import org.apache.spark.SparkConf
+import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
 import org.apache.spark.SparkContext
-import org.apache.spark.scheduler.StatsReportListener
+
+import edu.berkeley.cs.amplab.mlmatrix.util.Utils
 
 class NormalEquations extends Logging with Serializable {
 
@@ -15,19 +17,20 @@ class NormalEquations extends Logging with Serializable {
       A: RowPartitionedMatrix,
       b: RowPartitionedMatrix) : DenseMatrix[Double]  = {
     val Ab = A.rdd.zip(b.rdd).map(x => (x._1.mat, x._2.mat))
-    val ATb = Ab.map { part => 
-      part._1.t * part._2
-    }.reduce { case (a, b) => 
-      a + b
+    val ATA_ATb = Ab.map { part =>
+      (part._1.t * part._1, part._1.t * part._2)
     }
 
-    val ATA = A.rdd.map { part => 
-      part.mat.t * part.mat 
-    }.reduce { case (a, b) => 
-      a + b 
-    }
+    val reduced = Utils.treeReduce(ATA_ATb, reduceNormal, depth=2)
+    reduced._1 \ reduced._2
+  }
 
-    ATA \ ATb
+  private def reduceNormal(
+    a: (DenseMatrix[Double], DenseMatrix[Double]),
+    b: (DenseMatrix[Double], DenseMatrix[Double])): (DenseMatrix[Double], DenseMatrix[Double]) = {
+    a._1 :+= b._1
+    a._2 :+= b._2
+    a
   }
 }
 
@@ -51,20 +54,7 @@ object NormalEquations extends Logging {
       .setJars(SparkContext.jarOfClass(this.getClass).toSeq)
     val sc = new SparkContext(conf)
 
-    val rowsPerPart = numRows / numParts
-    val matrixParts = sc.parallelize(1 to numParts, numParts).mapPartitions { part =>
-      val data = new Array[Double](rowsPerPart * (numCols))
-      var i = 0
-      while (i < rowsPerPart * (numCols)) {
-        data(i) = ThreadLocalRandom.current().nextGaussian()
-        i = i + 1
-      }
-      val mat = new DenseMatrix[Double](rowsPerPart, numCols + 1, data)
-      Iterator(mat)
-    }
-    matrixParts.cache().count()
-
-    val A = RowPartitionedMatrix.fromMatrix(matrixParts)
+    val A = RowPartitionedMatrix.createRandom(sc, numRows, numCols, numParts, cache=true)
 
     val b =  A.mapPartitions(
       part => DenseMatrix.rand(part.rows, numClasses)).cache()
@@ -72,5 +62,7 @@ object NormalEquations extends Logging {
     var begin = System.nanoTime()
     val x = new NormalEquations().solveLeastSquares(A, b)
     var end = System.nanoTime()
+
+    println("Normal equations took " + (end-begin)/1e6 + " ms")
   }
 }

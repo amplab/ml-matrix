@@ -11,24 +11,19 @@ import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 
 import edu.berkeley.cs.amplab.mlmatrix.util.QRUtils
+import edu.berkeley.cs.amplab.mlmatrix.util.Utils
 
 class TSQR extends Logging with Serializable {
 
   def qrR(mat: RowPartitionedMatrix): DenseMatrix[Double] = {
-    var qrTree = mat.rdd.mapPartitionsWithIndex { case (idx, part) =>
-      val qrResult = QRUtils.qrR(part.next.mat)
-      Iterator((idx, qrResult))
+    val qrTree = mat.rdd.map { part =>
+      if (part.mat.rows < part.mat.cols) {
+        part.mat
+      } else {
+        QRUtils.qrR(part.mat)
+      }
     }
-    var numParts = qrTree.partitions.length.toDouble
-    // TODO: Use aggregateTree from RDD API
-    while (numParts > 1) {
-      qrTree = qrTree.map(x => ((x._1/2.0).toInt, x._2)).reduceByKey(
-        numPartitions=(numParts/2.0).toInt,
-        func=reduceQR(_, _))
-      numParts = math.ceil(numParts/2.0).toInt
-    }
-    val result = qrTree.map(x => x._2)
-    result.collect()(0)
+    Utils.treeReduce(qrTree, reduceQR, depth=2)
   }
 
   private def reduceQR(a: DenseMatrix[Double], b: DenseMatrix[Double]): DenseMatrix[Double] = {
@@ -42,7 +37,7 @@ class TSQR extends Logging with Serializable {
     var curTreeIdx = qrTree.size - 1
 
     // Now construct Q by going up the tree
-    var qrRevTree = qrTree(curTreeIdx).map { part =>
+    var qrRevTree = qrTree(curTreeIdx)._2.map { part =>
       val yPart = part._2._1
       val tPart = part._2._2
       val qIn = new DenseMatrix[Double](yPart.rows, yPart.cols)
@@ -62,8 +57,8 @@ class TSQR extends Logging with Serializable {
       curTreeIdx = curTreeIdx - 1
       prevTree = qrRevTree
       if (curTreeIdx > 0) {
-        val nextNumParts = qrTree(curTreeIdx - 1).partitions.size
-        qrRevTree = qrTree(curTreeIdx).join(prevTree).flatMap { part =>
+        val nextNumParts = qrTree(curTreeIdx - 1)._1
+        qrRevTree = qrTree(curTreeIdx)._2.join(prevTree).flatMap { part =>
           val yPart = part._2._1._1
           val tPart = part._2._1._2
           val qPart = part._2._2
@@ -77,7 +72,7 @@ class TSQR extends Logging with Serializable {
           }
         }
       } else {
-        qrRevTree = qrTree(curTreeIdx).join(prevTree).map { part =>
+        qrRevTree = qrTree(curTreeIdx)._2.join(prevTree).map { part =>
           val yPart = part._2._1._1
           val tPart = part._2._1._2
           val qPart = part._2._2
@@ -85,30 +80,35 @@ class TSQR extends Logging with Serializable {
         }
       }
     }
+
     (RowPartitionedMatrix.fromMatrix(qrRevTree.map(x => x._2)), r)
   }
 
   private def qrYTR(mat: RowPartitionedMatrix):
-      (Seq[RDD[(Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double]))]],
+      (Seq[(Int, RDD[(Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double]))])],
         DenseMatrix[Double]) = {
-    val qrTreeSeq = new ArrayBuffer[RDD[(Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double]))]]
-    var qrTree = mat.rdd.mapPartitionsWithIndex { case (idx, part) =>
-      if (part.hasNext) {
-        val qrResult = QRUtils.qrYTR(part.next.mat)
-        Iterator((idx, qrResult))
-      } else {
-        Iterator()
+    val qrTreeSeq = new ArrayBuffer[(Int, RDD[(Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double]))])]
+
+    val matPartInfo = mat.getPartitionInfo
+    val matPartInfoBroadcast = mat.rdd.context.broadcast(matPartInfo)
+
+    var qrTree = mat.rdd.mapPartitionsWithIndex { case (part, iter) =>
+      val partBlockIds = matPartInfoBroadcast.value(part).sortBy(x=> x.blockId).map(x => x.blockId)
+      iter.zip(partBlockIds.iterator).map { case (lm, bi) =>
+        val qrResult = QRUtils.qrYTR(lm.mat)
+        (bi, qrResult)
       }
     }
-    qrTreeSeq.append(qrTree)
 
-    var numParts = qrTree.partitions.length.toDouble
+    var numParts = matPartInfo.flatMap(x => x._2.map(y => y.blockId)).size
+    qrTreeSeq.append((numParts, qrTree))
+
     while (numParts > 1) {
       qrTree = qrTree.map(x => ((x._1/2.0).toInt, x._2)).reduceByKey(
         numPartitions=math.ceil(numParts/2.0).toInt,
         func=reduceYTR(_, _))
       numParts = math.ceil(numParts/2.0).toInt
-      qrTreeSeq.append(qrTree)
+      qrTreeSeq.append((numParts, qrTree))
     }
     val r = qrTree.map(x => x._2._3).collect()(0)
     (qrTreeSeq, r)
@@ -143,38 +143,29 @@ class TSQR extends Logging with Serializable {
       b: RowPartitionedMatrix,
       lambdas: Array[Double]): Seq[DenseMatrix[Double]] = {
     val matrixParts = A.rdd.zip(b.rdd).map(x => (x._1.mat, x._2.mat))
-    var qrTree = matrixParts.mapPartitionsWithIndex { case (idx, part) =>
-      val (aPart, bPart) = part.next
+    val qrTree = matrixParts.map { part =>
+      val (aPart, bPart) = part
       if (aPart.rows < aPart.cols) {
-        Iterator((idx, (aPart, bPart)))
+        (aPart, bPart)
       } else {
-        val (rPart, bUpdated) = QRUtils.qrSolve(aPart, bPart)
-        Iterator((idx, (rPart, bUpdated)))
+        QRUtils.qrSolve(aPart, bPart)
       }
     }
-    var numParts = qrTree.partitions.length.toDouble
-    while (numParts > 1) {
-      qrTree = qrTree.map(x => ((x._1/2.0).toInt, x._2)).reduceByKey(
-        numPartitions=(numParts/2.0).toInt,
-        func=reduceQRSolve(_, _))
-      numParts = math.ceil(numParts/2.0).toInt
-    }
+
+    val qrResult = Utils.treeReduce(qrTree, reduceQRSolve, depth=2)
 
     val results = lambdas.map { lambda =>
       // We only have one partition right now
-      val result = qrTree.map { x =>
-        val (rFinal, bFinal) = x._2
-        val out = if (lambda == 0.0) {
-          rFinal \ bFinal
-        } else {
-          val lambdaRB = (DenseMatrix.eye[Double](rFinal.cols) :* lambda,
-            new DenseMatrix[Double](rFinal.cols, bFinal.cols))
-          val reduced = reduceQRSolve((rFinal, bFinal), lambdaRB)
-          reduced._1 \ reduced._2
-        }
-        out
+      val (rFinal, bFinal) = qrResult
+      val out = if (lambda == 0.0) {
+        rFinal \ bFinal
+      } else {
+        val lambdaRB = (DenseMatrix.eye[Double](rFinal.cols) :* lambda,
+          new DenseMatrix[Double](rFinal.cols, bFinal.cols))
+        val reduced = reduceQRSolve((rFinal, bFinal), lambdaRB)
+        reduced._1 \ reduced._2
       }
-      result.collect()(0)
+      out
     }
     results
   }

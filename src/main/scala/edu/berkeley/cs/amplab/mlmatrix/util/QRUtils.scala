@@ -29,7 +29,7 @@ object QRUtils {
     val maxd = scala.math.max(m, n)
     val mind = scala.math.min(m, n)
     val tau = new Array[Double](mind)
-    val outputMat = new DenseMatrix[Double](m, n, A.data)
+    val outputMat = Utils.cloneMatrix(A)
     lapack.dgeqrf(m, n, outputMat.data, m, tau, workspace, workspace.length, info)
 
     // Error check
@@ -88,7 +88,9 @@ object QRUtils {
       var c = 0
       while (c < mind) {
         Q(r, c) = Y(r, c)
+        c = c + 1
       }
+      r = r + 1
     }
 
     // Error check
@@ -109,10 +111,11 @@ object QRUtils {
       T: Array[Double],
       bPart: DenseMatrix[Double],
       transpose: Boolean) = {
+
     val result = if (bPart.rows == Y.rows && bPart.cols == Y.cols) {
         Utils.cloneMatrix(bPart)
       } else {
-        val r = new DenseMatrix[Double](Y.rows, Y.cols)
+        val r = new DenseMatrix[Double](Y.rows, bPart.cols)
         for (i <- 0 until bPart.rows) {
           for (j <- 0 until bPart.cols) {
             r(i, j) = bPart(i, j)
@@ -123,7 +126,8 @@ object QRUtils {
 
     val work = new Array[Double](1) 
     val info = new intW(0)
-    val trans = if (transpose) "Y" else "N"
+    val trans = if (transpose) "T" else "N"
+
     lapack.dormqr("L", trans, result.rows, result.cols, T.length, Y.data, Y.rows, T,
       result.data, result.rows, work, -1, info)
 
@@ -138,15 +142,20 @@ object QRUtils {
     else if (info.`val` < 0)
       throw new IllegalArgumentException()
 
-    result
+    // Select only the first N rows if we multiplied by t(Q)
+    if (transpose) {
+      result(0 until Y.cols, ::)
+    } else {
+      result
+    }
   }
 
   def qrSolve(A: DenseMatrix[Double], b: DenseMatrix[Double]) = {
     val (yPart, tau, rPart) = qrYTR(A)
-    val x = applyQ(yPart, tau, rPart, transpose=true)
+    val x = applyQ(yPart, tau, b, transpose=true)
 
     // Resize x to only take first N rows
-    (rPart, x(0 until A.cols, ::))
+    (rPart, x)
   }
 
 }

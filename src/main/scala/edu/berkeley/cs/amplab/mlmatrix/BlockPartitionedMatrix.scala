@@ -5,9 +5,11 @@ import scala.collection.mutable.ArrayBuffer
 
 import breeze.linalg._
 
+import org.apache.spark.rdd.RDD
+import org.apache.spark.rdd.PartitionPruningRDD
+import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.SparkException
-import org.apache.spark.rdd.RDD
 
 case class BlockPartition(
   blockIdRow: Int,
@@ -16,6 +18,7 @@ case class BlockPartition(
 
 // Information about BlockPartitionedMatrix maintained on the driver
 case class BlockPartitionInfo(
+  partitionId: Int,
   blockIdRow: Int,
   blockIdCol: Int,
   startRow: Long,
@@ -52,20 +55,29 @@ class BlockPartitionedMatrix(
   private def calculateBlockInfo() {
     // TODO: Part of this is repeated in the fromArray code. See if we can avoid this
     // duplication.
-    val blockStartRowCols = rdd.flatMap { part =>
-      val dims = new ArrayBuffer[(Int, Int, Long, Long)]
-      if (part.blockIdRow == 0 && part.blockIdCol == 0) {
-        dims += ((part.blockIdRow, part.blockIdCol, part.mat.rows.toLong, part.mat.cols.toLong))
-      } else {
-        if (part.blockIdCol == 0) {
-          dims += ((part.blockIdRow, part.blockIdCol, part.mat.rows.toLong, part.mat.cols.toLong))
+
+    val blockStartRowColsParts = rdd.mapPartitionsWithIndex { case (partId, iter) =>
+      val partDimIter = iter.map { part =>
+        val dims = new ArrayBuffer[(Int, Int, Long, Long)]
+        val partIdMap = (part.blockIdRow, part.blockIdCol) -> partId
+        if (part.blockIdRow == 0 && part.blockIdCol == 0) {
+          dims += ((part.blockIdRow, part.blockIdCol,
+                    part.mat.rows.toLong, part.mat.cols.toLong))
+        } else {
+          if (part.blockIdCol == 0) {
+            dims += ((part.blockIdRow, part.blockIdCol,
+                      part.mat.rows.toLong, part.mat.cols.toLong))
+          }
+          if (part.blockIdRow == 0) {
+            dims += ((part.blockIdRow, part.blockIdCol,
+                      part.mat.rows.toLong, part.mat.cols.toLong))
+          }
         }
-        if (part.blockIdRow == 0) {
-          dims += ((part.blockIdRow, part.blockIdCol, part.mat.rows.toLong, part.mat.cols.toLong))
-        }
+        (partIdMap, dims)
       }
-      dims.iterator
-    }.collect().sortBy(x => (x._1, x._2))
+      partDimIter
+    }.collect()
+    val blockStartRowCols = blockStartRowColsParts.flatMap(x => x._2).sortBy(x => (x._1, x._2))
 
     // Calculate startRows
     val cumulativeRowSum = blockStartRowCols.filter {
@@ -88,9 +100,11 @@ class BlockPartitionedMatrix(
       (x._1._2, (x._1._4, x._2))
     }.toMap
 
+    val partitionIdsMap = blockStartRowColsParts.map(x => x._1).toMap
+
     blockInfo_ = rowStarts.keys.flatMap { r =>
       colStarts.keys.map { c =>
-        ((r,c), BlockPartitionInfo(
+        ((r,c), BlockPartitionInfo(partitionIdsMap((r,c)),
           r, c, rowStarts(r)._2, rowStarts(r)._1.toInt, colStarts(c)._2, colStarts(c)._1.toInt))
       }
     }.toMap
@@ -297,13 +311,17 @@ class BlockPartitionedMatrix(
     val blocksFiltered = blockInfos.filter { bi =>
       bi._2.blockIdRow >= startRowBlock && bi._2.blockIdRow < endRowBlock &&
       bi._2.blockIdCol >= startColBlock && bi._2.blockIdCol < endColBlock
-    }.mapValues { bi =>
+    }
+    val blocksFilteredIds = blocksFiltered.values.map(bi => bi.partitionId).toSet
+
+    val newBlockIds = blocksFiltered.mapValues { bi =>
       (bi.blockIdRow - startRowBlock, bi.blockIdCol - startColBlock)
     }
+    val newBlockIdBcast = rdd.context.broadcast(newBlockIds)
 
-    val newBlockIdBcast = rdd.context.broadcast(blocksFiltered)
+    val prunedRdd = PartitionPruningRDD.create(rdd, part => blocksFilteredIds.contains(part))
 
-    val blockRDD = rdd.filter { part =>
+    val blockRDD = prunedRdd.filter { part =>
       newBlockIdBcast.value.contains((part.blockIdRow, part.blockIdCol))
     }.map { part =>
       // Get a new blockIdRow, blockIdCol
