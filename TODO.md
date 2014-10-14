@@ -1,15 +1,6 @@
 Matrix Formats
   1. Add ColumnPartitionedMatrix
-  3. Implement apply with row, col range
-  4. Transpose
-  5. Save / Load
-
-TSQR
-  0. Import test cases
-
-Normal Equations
-  0. Import test cases
-  1. Use aggregateTree in the RDD API
+  2. Implement apply with row, col range
 
 -----
 Matrix Multiply
@@ -28,4 +19,6 @@ Block Coordinate Descent
   0. Resolve the merge conflicts
   1. Test with different input / block sizes
 
-Import test cases from the pipelines repo for all the classes
+Matrix formats
+  4. Transpose
+  5. Save / Load
