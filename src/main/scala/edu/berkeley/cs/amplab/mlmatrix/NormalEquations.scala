@@ -63,6 +63,7 @@ object NormalEquations extends Logging {
     val x = new NormalEquations().solveLeastSquares(A, b)
     var end = System.nanoTime()
 
+    sc.stop()
     println("Normal equations took " + (end-begin)/1e6 + " ms")
   }
 }

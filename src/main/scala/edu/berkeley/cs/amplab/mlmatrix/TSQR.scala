@@ -182,7 +182,7 @@ class TSQR extends Logging with Serializable {
 object TSQR extends Logging {
 
   def main(args: Array[String]) {
-    if (args.length < 6) {
+    if (args.length < 5) {
       println("Usage: TSQR <master> <numRows> <numCols> <numParts> <numClasses>")
       System.exit(0)
     }
@@ -225,6 +225,8 @@ object TSQR extends Logging {
 
     val x = new TSQR().solveLeastSquares(A, b)
     end = System.nanoTime()
+
+    sc.stop()
     logInfo("Linear solver of " + numRows + "x" + numCols + " took " + (end - begin)/1e6 + "ms")
   }
   
