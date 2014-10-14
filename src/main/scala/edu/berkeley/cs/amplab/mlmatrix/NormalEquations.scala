@@ -11,7 +11,7 @@ import org.apache.spark.SparkContext
 
 import edu.berkeley.cs.amplab.mlmatrix.util.Utils
 
-class NormalEquations extends Logging with Serializable {
+object NormalEquations extends Logging with Serializable {
 
   def solveLeastSquares(
       A: RowPartitionedMatrix,
@@ -32,9 +32,6 @@ class NormalEquations extends Logging with Serializable {
     a._2 :+= b._2
     a
   }
-}
-
-object NormalEquations extends Logging {
 
   def main(args: Array[String]) {
     if (args.length < 5) {
@@ -60,7 +57,7 @@ object NormalEquations extends Logging {
       part => DenseMatrix.rand(part.rows, numClasses)).cache()
 
     var begin = System.nanoTime()
-    val x = new NormalEquations().solveLeastSquares(A, b)
+    val x = NormalEquations.solveLeastSquares(A, b)
     var end = System.nanoTime()
 
     sc.stop()

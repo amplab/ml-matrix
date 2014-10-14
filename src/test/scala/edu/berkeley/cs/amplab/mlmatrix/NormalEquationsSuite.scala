@@ -17,7 +17,7 @@ class NormalEquationsSuite extends FunSuite with LocalSparkContext {
     val localA = A.collect()
     val localB = b.collect()
 
-    val x = new NormalEquations().solveLeastSquares(A, b)
+    val x = NormalEquations.solveLeastSquares(A, b)
     val localX = localA \ localB
 
     assert(Utils.aboutEq(x, localX))

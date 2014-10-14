@@ -13,7 +13,7 @@ import org.apache.spark.SparkContext._
 import edu.berkeley.cs.amplab.mlmatrix.util.QRUtils
 import edu.berkeley.cs.amplab.mlmatrix.util.Utils
 
-class TSQR extends Logging with Serializable {
+object TSQR extends Logging with Serializable {
 
   def qrR(mat: RowPartitionedMatrix): DenseMatrix[Double] = {
     val qrTree = mat.rdd.map { part =>
@@ -177,10 +177,6 @@ class TSQR extends Logging with Serializable {
       DenseMatrix.vertcat(a._2, b._2))
   }
 
-}
-
-object TSQR extends Logging {
-
   def main(args: Array[String]) {
     if (args.length < 5) {
       println("Usage: TSQR <master> <numRows> <numCols> <numParts> <numClasses>")
@@ -214,7 +210,7 @@ object TSQR extends Logging {
 
     var begin = System.nanoTime()
     val A = RowPartitionedMatrix.fromMatrix(matrixParts)
-    val R = new TSQR().qrR(A)
+    val R = TSQR.qrR(A)
     var end = System.nanoTime()
     logInfo("Random TSQR of " + numRows + "x" + numCols + " took " + (end - begin)/1e6 + "ms")
 
@@ -223,7 +219,7 @@ object TSQR extends Logging {
     val b =  A.mapPartitions(
       part => DenseMatrix.rand(part.rows, numClasses)).cache()
 
-    val x = new TSQR().solveLeastSquares(A, b)
+    val x = TSQR.solveLeastSquares(A, b)
     end = System.nanoTime()
 
     sc.stop()
