@@ -14,7 +14,7 @@ class TSQRSuite extends FunSuite with LocalSparkContext {
     val A = RowPartitionedMatrix.createRandom(sc, 128, 16, 4, cache=true)
     val localA = A.collect()
   
-    val r = TSQR.qrR(A)
+    val r = new TSQR().qrR(A)
     val localR = qr.justR(localA)
   
     assert(Utils.aboutEq(abs(r), abs(localR)))
@@ -25,7 +25,7 @@ class TSQRSuite extends FunSuite with LocalSparkContext {
     val A = RowPartitionedMatrix.createRandom(sc, 8, 4, 2, cache=true)
     val localA = A.collect()
 
-    val (q, r) = TSQR.qrQR(A)
+    val (q, r) = new TSQR().qrQR(A)
     val localQR = qr(localA)
 
     assert(Utils.aboutEq(abs(r), abs(localQR.r)))
@@ -43,7 +43,7 @@ class TSQRSuite extends FunSuite with LocalSparkContext {
     val localA = A.collect()
     val localB = b.collect()
   
-    val x = TSQR.solveLeastSquares(A, b)
+    val x = new TSQR().solveLeastSquares(A, b)
   
     val localX = localA \ localB
   
@@ -61,7 +61,7 @@ class TSQRSuite extends FunSuite with LocalSparkContext {
 
     val lambdas = Array(0.0, 1e-4, 1e-6, 100)
   
-    val xs = TSQR.solveLeastSquaresWithManyL2(A, b, lambdas)
+    val xs = new TSQR().solveLeastSquaresWithManyL2(A, b, lambdas)
 
     for (i <- 0 until lambdas.length) {
       val x = xs(i)

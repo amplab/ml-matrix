@@ -13,7 +13,7 @@ import org.apache.spark.SparkContext._
 import edu.berkeley.cs.amplab.mlmatrix.util.QRUtils
 import edu.berkeley.cs.amplab.mlmatrix.util.Utils
 
-object TSQR extends Logging with Serializable {
+class TSQR extends RowPartitionedSolver with Logging with Serializable {
 
   def qrR(mat: RowPartitionedMatrix): DenseMatrix[Double] = {
     val qrTree = mat.rdd.map { part =>
@@ -121,19 +121,6 @@ object TSQR extends Logging with Serializable {
     QRUtils.qrYTR(DenseMatrix.vertcat(a._3, b._3))
   }
 
-  def solveLeastSquares(
-      A: RowPartitionedMatrix,
-      b: RowPartitionedMatrix): DenseMatrix[Double] = {
-    solveLeastSquaresWithL2(A, b, 0.0)
-  }
-
-  def solveLeastSquaresWithL2(
-      A: RowPartitionedMatrix,
-      b: RowPartitionedMatrix,
-      lambda: Double): DenseMatrix[Double] = {
-    solveLeastSquaresWithManyL2(A, b, Array(lambda)).head
-  }
-
   // From http://math.stackexchange.com/questions/299481/qr-factorization-for-ridge-regression
   // To solve QR with L2, we need to factorize \pmatrix{ A \\ \Gamma}
   // i.e. A and \Gamma stacked vertically, where \Gamma is a nxn Matrix.
@@ -177,6 +164,54 @@ object TSQR extends Logging with Serializable {
       DenseMatrix.vertcat(a._2, b._2))
   }
 
+  def solveManyLeastSquaresWithL2(
+      A: RowPartitionedMatrix,
+      b: RDD[Seq[DenseMatrix[Double]]],
+      lambdas: Array[Double]): Seq[DenseMatrix[Double]] = {
+
+    val matrixParts = A.rdd.zip(b).map { x => 
+      (x._1.mat, x._2)
+    }
+
+    val qrTree = matrixParts.map { part =>
+      val (aPart, bParts) = part
+
+      if (aPart.rows < aPart.cols) {
+        (aPart, bParts)
+      } else {
+        QRUtils.qrSolveMany(aPart, bParts)
+      }
+    }
+
+    val qrResult = Utils.treeReduce(qrTree, reduceQRSolveMany, depth=2)
+    val rFinal = qrResult._1
+
+    val results = lambdas.zip(qrResult._2).map { case (lambda, bFinal) =>
+      // We only have one partition right now
+      val out = if (lambda == 0.0) {
+        rFinal \ bFinal
+      } else {
+        val lambdaRB = (DenseMatrix.eye[Double](rFinal.cols) :* lambda,
+          new DenseMatrix[Double](rFinal.cols, bFinal.cols))
+        val reduced = reduceQRSolve((rFinal, bFinal), lambdaRB)
+        reduced._1 \ reduced._2
+      }
+      out
+    }
+    results
+  }
+
+  private def reduceQRSolveMany(
+      a: (DenseMatrix[Double], Seq[DenseMatrix[Double]]),
+      b: (DenseMatrix[Double], Seq[DenseMatrix[Double]])):
+        (DenseMatrix[Double], Seq[DenseMatrix[Double]]) = {
+    QRUtils.qrSolveMany(DenseMatrix.vertcat(a._1, b._1),
+      a._2.zip(b._2).map(x => DenseMatrix.vertcat(x._1, x._2)))
+  }
+}
+
+object TSQR extends Logging {
+
   def main(args: Array[String]) {
     if (args.length < 5) {
       println("Usage: TSQR <master> <numRows> <numCols> <numParts> <numClasses>")
@@ -210,7 +245,7 @@ object TSQR extends Logging with Serializable {
 
     var begin = System.nanoTime()
     val A = RowPartitionedMatrix.fromMatrix(matrixParts)
-    val R = TSQR.qrR(A)
+    val R = new TSQR().qrR(A)
     var end = System.nanoTime()
     logInfo("Random TSQR of " + numRows + "x" + numCols + " took " + (end - begin)/1e6 + "ms")
 
@@ -219,7 +254,7 @@ object TSQR extends Logging with Serializable {
     val b =  A.mapPartitions(
       part => DenseMatrix.rand(part.rows, numClasses)).cache()
 
-    val x = TSQR.solveLeastSquares(A, b)
+    val x = new TSQR().solveLeastSquares(A, b)
     end = System.nanoTime()
 
     sc.stop()

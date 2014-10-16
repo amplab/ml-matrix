@@ -11,18 +11,68 @@ import org.apache.spark.SparkContext
 
 import edu.berkeley.cs.amplab.mlmatrix.util.Utils
 
-object NormalEquations extends Logging with Serializable {
+class NormalEquations extends RowPartitionedSolver with Logging with Serializable {
 
-  def solveLeastSquares(
+  def solveManyLeastSquaresWithL2(
       A: RowPartitionedMatrix,
-      b: RowPartitionedMatrix) : DenseMatrix[Double]  = {
+      b: RDD[Seq[DenseMatrix[Double]]],
+      lambdas: Array[Double]): Seq[DenseMatrix[Double]] = {
+
+    val Abs = A.rdd.zip(b).map { x => 
+      (x._1.mat, x._2)
+    }
+
+    val ATA_ATb = Abs.map { part =>
+      val AtA = part._1.t * part._1
+      val AtBs = part._2.map { b =>
+        part._1.t * b
+      }
+      (AtA, AtBs)
+    }
+
+    val reduced = Utils.treeReduce(ATA_ATb, reduceNormalMany, depth=2)
+
+    val ATA = reduced._1
+    
+    // Local solve
+    val xs = lambdas.zip(reduced._2).map { l =>
+      val gamma = DenseMatrix.eye[Double](ATA.rows)
+      gamma :*= l._1
+      (ATA + gamma) \ l._2
+    }
+
+    xs
+  }
+
+  private def reduceNormalMany(
+    a: (DenseMatrix[Double], Seq[DenseMatrix[Double]]),
+    b: (DenseMatrix[Double], Seq[DenseMatrix[Double]])): 
+      (DenseMatrix[Double], Seq[DenseMatrix[Double]]) = {
+    a._1 :+= b._1
+    a._2.zip(b._2).map { z =>
+      z._1 :+= z._2
+    }
+    a
+  }
+
+  def solveLeastSquaresWithManyL2(
+      A: RowPartitionedMatrix,
+      b: RowPartitionedMatrix,
+      lambdas: Array[Double]) : Seq[DenseMatrix[Double]]  = {
     val Ab = A.rdd.zip(b.rdd).map(x => (x._1.mat, x._2.mat))
     val ATA_ATb = Ab.map { part =>
       (part._1.t * part._1, part._1.t * part._2)
     }
 
     val reduced = Utils.treeReduce(ATA_ATb, reduceNormal, depth=2)
-    reduced._1 \ reduced._2
+
+    val xs = lambdas.map { l =>
+      val gamma = DenseMatrix.eye[Double](reduced._1.rows)
+      gamma :*= l
+      (reduced._1 + gamma) \ reduced._2
+    }
+
+    xs
   }
 
   private def reduceNormal(
@@ -32,6 +82,10 @@ object NormalEquations extends Logging with Serializable {
     a._2 :+= b._2
     a
   }
+
+}
+
+object NormalEquations {
 
   def main(args: Array[String]) {
     if (args.length < 5) {
@@ -57,7 +111,7 @@ object NormalEquations extends Logging with Serializable {
       part => DenseMatrix.rand(part.rows, numClasses)).cache()
 
     var begin = System.nanoTime()
-    val x = NormalEquations.solveLeastSquares(A, b)
+    val x = new NormalEquations().solveLeastSquares(A, b)
     var end = System.nanoTime()
 
     sc.stop()
