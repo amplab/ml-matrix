@@ -47,8 +47,8 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
       (part._1, QRUtils.applyQ(yPart, tPart, qIn, transpose=false))
     }.flatMap { x =>
       val nrows = x._2.rows
-      Iterator((x._1 * 2, x._2(0 until nrows/2, ::)),
-               (x._1 * 2 + 1, x._2(nrows/2 until nrows, ::)))
+      Iterator((x._1 * 2, x._2),
+               (x._1 * 2 + 1, x._2))
     }
 
     var prevTree = qrRevTree
@@ -61,12 +61,19 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
         qrRevTree = qrTree(curTreeIdx)._2.join(prevTree).flatMap { part =>
           val yPart = part._2._1._1
           val tPart = part._2._1._2
-          val qPart = part._2._2
+          val qPart = if (part._1 % 2 == 0) {
+            val e = math.min(yPart.rows, yPart.cols)
+            part._2._2(0 until e, ::)
+          } else {
+            val numRows = math.min(yPart.rows, yPart.cols)
+            val s = part._2._2.rows - numRows
+            part._2._2(s until part._2._2.rows, ::)
+          }
           if (part._1 * 2 + 1 < nextNumParts) {
             val qOut = QRUtils.applyQ(yPart, tPart, qPart, transpose=false)
             val nrows = qOut.rows
-            Iterator((part._1 * 2, qOut(0 until nrows/2, ::)),
-                     (part._1 * 2 + 1, qOut(nrows/2 until nrows, ::)))
+            Iterator((part._1 * 2, qOut),
+                     (part._1 * 2 + 1, qOut))
           } else {
             Iterator((part._1 * 2, qPart))
           }
@@ -75,7 +82,14 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
         qrRevTree = qrTree(curTreeIdx)._2.join(prevTree).map { part =>
           val yPart = part._2._1._1
           val tPart = part._2._1._2
-          val qPart = part._2._2
+          val qPart = if (part._1 % 2 == 0) {
+            val e = math.min(yPart.rows, yPart.cols)
+            part._2._2(0 until e, ::)
+          } else {
+            val numRows = math.min(yPart.rows, yPart.cols)
+            val s = part._2._2.rows - numRows
+            part._2._2(s until part._2._2.rows, ::)
+          }
           (part._1, QRUtils.applyQ(yPart, tPart, qPart, transpose=false))
         }
       }
@@ -93,10 +107,23 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     val matPartInfoBroadcast = mat.rdd.context.broadcast(matPartInfo)
 
     var qrTree = mat.rdd.mapPartitionsWithIndex { case (part, iter) =>
-      val partBlockIds = matPartInfoBroadcast.value(part).sortBy(x=> x.blockId).map(x => x.blockId)
-      iter.zip(partBlockIds.iterator).map { case (lm, bi) =>
-        val qrResult = QRUtils.qrYTR(lm.mat)
-        (bi, qrResult)
+      if (matPartInfoBroadcast.value.contains(part) && !iter.isEmpty) {
+        val partBlockIds = matPartInfoBroadcast.value(part).sortBy(x=> x.blockId).map(x => x.blockId)
+        iter.zip(partBlockIds.iterator).map { case (lm, bi) =>
+          if (lm.mat.rows < lm.mat.cols) {
+            (
+              bi,
+              (new DenseMatrix[Double](lm.mat.rows, lm.mat.cols),
+               new Array[Double](lm.mat.rows),
+              lm.mat)
+            )
+          } else {
+            val qrResult = QRUtils.qrYTR(lm.mat)
+            (bi, qrResult)
+          }
+        }
+      } else {
+        Iterator()
       }
     }
 
