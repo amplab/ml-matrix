@@ -29,6 +29,29 @@ object Utils {
     out
   }
 
+  def decomposeLowerUpper(A: DenseMatrix[Double]): (DenseMatrix[Double], DenseMatrix[Double]) = {
+    val L = new DenseMatrix[Double](A.rows, min(A.rows, A.cols))
+    val U = new DenseMatrix[Double](min(A.cols, A.rows), A.cols)
+
+    var i = 0
+    while(i < A.rows) {
+      var j = 0
+      while(j < A.cols) {
+        if (i < j) {
+          U(i, j) =  A(i, j)
+        } else if (i == j) {
+          U(i, i) = A(i, i)
+          L(i, i) = 1.0
+        } else {
+          L(i, j) = A(i, j)
+        }
+        j = j + 1
+      }
+      i = i + 1
+    }
+    (L, U)
+  }
+
   /**
    * Reduces the elements of this RDD in a multi-level tree pattern.
    *
