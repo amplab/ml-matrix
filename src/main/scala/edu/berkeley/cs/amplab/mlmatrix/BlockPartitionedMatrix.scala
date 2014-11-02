@@ -247,7 +247,7 @@ class BlockPartitionedMatrix(
       val newMat = part.mat(localIdx.head to localIdx.last, ::)
       BlockPartition(newBlockIdRow, blockInfo.blockIdCol, newMat)
     }
-    new BlockPartitionedMatrix(blocksWithRows.length, numColBlocks, blockRDD)
+    new BlockPartitionedMatrix(newBlockIdMap.size, numColBlocks, blockRDD)
   }
 
   override def apply(rowRange: ::.type, colRange: Range) = {
@@ -277,7 +277,7 @@ class BlockPartitionedMatrix(
       val newMat = part.mat(::, localIdx.head to localIdx.last)
       BlockPartition(blockInfo.blockIdRow, newBlockIdCol, newMat)
     }
-    new BlockPartitionedMatrix(numRowBlocks, blocksWithCols.length, blockRDD)
+    new BlockPartitionedMatrix(numRowBlocks, newBlockIdMap.size, blockRDD)
   }
 
   override def apply(rowRange: Range, colRange: Range) = ???
@@ -338,11 +338,7 @@ class BlockPartitionedMatrix(
   // Get a single column block as a row partitioned matrix
   def getColBlock(colBlock: Int) : RowPartitionedMatrix =  {
     val blockRDD = getBlockRange(0, numRowBlocks, colBlock, colBlock + 1)
-    val sorted = blockRDD.rdd.map { x =>
-      (x.blockIdRow, x.mat)
-    }.sortByKey(numPartitions=numRowBlocks).values
-
-    RowPartitionedMatrix.fromMatrix(sorted)
+    RowPartitionedMatrix.fromMatrix(blockRDD.rdd.map(_.mat))
   }
 }
 

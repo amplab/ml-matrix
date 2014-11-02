@@ -42,7 +42,15 @@ class BlockQR extends Logging with Serializable {
     val lMat = qb.rdd.sparkContext.broadcast(firstLUS._1)
     val uMat = qb.rdd.sparkContext.broadcast(firstLUS._2)
 
-    // Step 4: Construct tMat, rMat and yMat from L,U,S etc.
+    // Construct tMat, rMat and yMat from L,U,S etc.
+    val x = firstLUS._2 :* -1.0
+
+    val tMat = (x * (firstLUS._3)) * (
+      (firstLUS._1((0 until firstLUS._1.cols), ::) \
+       DenseMatrix.eye[Double](firstLUS._1.cols)).t)
+
+    val rMat = firstLUS._3 * (rb)
+
     val yMat = qb.rdd.mapPartitionsWithIndex { case (part, iter) =>
       if (qPartitionInfo.value.contains(part)) {
         val blockParts = qPartitionInfo.value(part)
@@ -66,14 +74,6 @@ class BlockQR extends Logging with Serializable {
         Iterator()
       }
     }
-
-    val x = firstLUS._2 :* -1.0
-
-    val tMat = (x * (firstLUS._3)) * (
-      (firstLUS._1((0 until firstLUS._1.cols), ::) \
-       DenseMatrix.eye[Double](firstLUS._1.cols)).t)
-
-    val rMat = firstLUS._3 * (rb)
 
     (yMat, tMat, rMat)
   }
@@ -99,15 +99,21 @@ class BlockQR extends Logging with Serializable {
       // Step 2: Reconstruct Q from QRTree
       val (qb, rb) = new TSQR().qrQR(cb)
 
-      val localqb = qb.collect()
-
-      // Step 3: LU of Q - S
-      val (yMat, tMat, rMat) = modifiedLU(qb, rb)
-
-      // Create an RDD from rMat
-      rMatrixParts += mat.rdd.context.makeRDD(Seq(new BlockPartition(colBlock, colBlock, rMat)), 1)
+      // TODO: Uncomment for profiling / memory management ?
+      // qb.cache()
+      // qb.rdd.count()
 
       if (colBlock != numColBlocks - 1) {
+        // Step 3: LU of Q - S
+        val (yMat, tMat, rMat) = modifiedLU(qb, rb)
+
+        // Create an RDD from rMat
+        rMatrixParts += mat.rdd.context.makeRDD(Seq(new BlockPartition(colBlock, colBlock, rMat)), 1)
+
+        // TODO: Uncomment for memory management ?
+        // yMat.cache()
+        // yMat.count
+
         val tMatBC = qb.rdd.sparkContext.broadcast(tMat)
         // Trailing update
         // Contract is that trailing matrix contains blocks that need to be QR'ed
@@ -115,35 +121,51 @@ class BlockQR extends Logging with Serializable {
         val otherColsBlocked = trailingMatrix.getBlockRange(0, trailingMatrix.numRowBlocks,
           1, trailingMatrix.numColBlocks)
 
-        val trailingWithRowBlocks = otherColsBlocked.rdd.map(x => (x.blockIdRow, x))
-        val rowJoined = yMat.join(trailingWithRowBlocks).map { x =>
+        val numColBlocks = otherColsBlocked.numColBlocks
+        val numRowBlocks = otherColsBlocked.numRowBlocks
+
+        val trailingWithRowBlocks = otherColsBlocked.rdd.map(x => (x.blockIdRow *
+          numColBlocks + x.blockIdCol, x))
+
+        val yMulticast = yMat.flatMap { x =>
+          (0 until numColBlocks).map { c =>
+            (x._1 * numColBlocks + c, x._2)
+          }
+        }
+
+        val rowJoined = yMulticast.join(trailingWithRowBlocks,
+          numPartitions=numRowBlocks*numColBlocks).map { x =>
           val rowPart = x._2._1
           val trailingPart = x._2._2
           val res = rowPart.t * (trailingPart.mat)
-          (trailingPart.blockIdCol,
+          ( (trailingPart.blockIdRow * numColBlocks + trailingPart.blockIdCol),
             RowJoinedPartition(trailingPart.blockIdRow, trailingPart.blockIdCol,
                                rowPart, trailingPart.mat, res))
         }.cache()
        
         // Sum its outputs
-        val colSums = rowJoined.map(x => (x._1, x._2.yTimesA)).reduceByKey { case (x, y) =>
+        val colSums = rowJoined.map(x => (x._2.blockIdCol, x._2.yTimesA)).reduceByKey { case (x, y) =>
           x + y
+        }.flatMap { f =>
+          (0 until numRowBlocks).map { r =>
+            (r * numColBlocks + f._1, f._2)
+          }
         }
-       
+
         // Do the column wise multiply, subtract
-        val finalSums = colSums.join(rowJoined).map { x =>
+        val finalSums = colSums.join(rowJoined, numPartitions=numRowBlocks*numColBlocks).map { x =>
           val colSumVal = x._2._1
           val rowJoinedVal = x._2._2
           val res = rowJoinedVal.aPart - 
             (rowJoinedVal.yPart * (tMatBC.value.t * (colSumVal)))
           BlockPartition(rowJoinedVal.blockIdRow, rowJoinedVal.blockIdCol, res)
         }
-       
+
         rowJoined.unpersist()
        
         val finalBlockMatrix = new BlockPartitionedMatrix(trailingMatrix.numRowBlocks,
           trailingMatrix.numColBlocks - 1, finalSums).cache()
-       
+
         val rPartsMat = finalBlockMatrix(0 until rMat.rows, ::)
 
         rMatrixParts += rPartsMat.rdd.map { b => 
@@ -151,7 +173,11 @@ class BlockQR extends Logging with Serializable {
         }
        
         // TODO: This won't work if we have more than 2B rows ?
-        trailingMatrix = finalBlockMatrix(rMat.rows until finalBlockMatrix.numRows.toInt, ::)
+        trailingMatrix = finalBlockMatrix(rMat.rows until finalBlockMatrix.numRows.toInt,
+          ::).cache()
+      } else {
+        // Create an RDD from rMat
+        rMatrixParts += mat.rdd.context.makeRDD(Seq(new BlockPartition(colBlock, colBlock, rb)), 1)
       }
     }
     val unionedRDD = rMatrixParts.reduceLeft { (a, b) => a.union(b) }
@@ -183,8 +209,15 @@ object BlockQR extends Logging {
 
     matrixRDD.cache().count()
 
-    var begin = System.nanoTime()
     val A = BlockPartitionedMatrix.fromArray(matrixRDD, rowsPerPart, colsPerPart)
+    A.cache()
+    val dim = A.getDim
+
+    var begin = System.nanoTime()
+    val r = new BlockQR().qrR(A).collect()
     var end = System.nanoTime()
+    println("BlockQR took " + (end - begin)/1e6 + " ms")
+
+    sc.stop()
   }
 }

@@ -11,7 +11,7 @@ import breeze.numerics._
 
 class BlockQRSuite extends FunSuite with LocalSparkContext {
 
-  test("Test R in QR") {
+  test("Test R in QR with row block size multiple of column block size") {
     sc = new SparkContext("local", "test")
 
     val numRows = 100
@@ -26,7 +26,7 @@ class BlockQRSuite extends FunSuite with LocalSparkContext {
 
     val localA = A.collect()
     val localR = qr.justR(localA)
-  
+
     val r = new BlockQR().qrR(A).collect()
     assert(Utils.aboutEq(abs(r), abs(localR)))
   }
