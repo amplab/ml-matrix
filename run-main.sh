@@ -29,7 +29,7 @@ if [ -z "$1" ]; then
 fi
 
 ASSEMBLY_DEPS_JAR="" #pipeline-assembly-0.1-deps.jar
-if [ -e "$FWDIR"/target/scala-$SCALA_VERSION/pipeline-assembly-*-deps.jar ]; then
+if [ -e "$FWDIR"/target/scala-$SCALA_VERSION/$PROJECT_NAME-assembly-*-deps.jar ]; then
   export ASSEMBLY_DEPS_JAR=`ls "$FWDIR"/target/scala-$SCALA_VERSION/$PROJECT_NAME-assembly-*-deps.jar`
 fi
 
