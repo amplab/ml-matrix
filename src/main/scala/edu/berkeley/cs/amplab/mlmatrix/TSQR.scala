@@ -8,6 +8,7 @@ import breeze.linalg._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
+import org.apache.spark.Accumulator
 import org.apache.spark.SparkContext._
 
 import edu.berkeley.cs.amplab.mlmatrix.util.QRUtils
@@ -16,18 +17,27 @@ import edu.berkeley.cs.amplab.mlmatrix.util.Utils
 class TSQR extends RowPartitionedSolver with Logging with Serializable {
 
   def qrR(mat: RowPartitionedMatrix): DenseMatrix[Double] = {
+    val localQR = mat.rdd.context.accumulator(0.0, "Time taken for Local QR")
+
     val qrTree = mat.rdd.map { part =>
       if (part.mat.rows < part.mat.cols) {
         part.mat
       } else {
-        QRUtils.qrR(part.mat)
+        val begin = System.nanoTime
+        val r = QRUtils.qrR(part.mat)
+        localQR += ((System.nanoTime - begin) / 1000000)
+        r
       }
     }
-    Utils.treeReduce(qrTree, reduceQR, depth=2)
+    val depth = (math.log(mat.rdd.partitions.size)/math.log(2)).toInt
+    Utils.treeReduce(qrTree, reduceQR(localQR, _ : DenseMatrix[Double], _ : DenseMatrix[Double]), depth=depth)
   }
 
-  private def reduceQR(a: DenseMatrix[Double], b: DenseMatrix[Double]): DenseMatrix[Double] = {
-    QRUtils.qrR(DenseMatrix.vertcat(a, b))
+  private def reduceQR(acc: Accumulator[Double], a: DenseMatrix[Double], b: DenseMatrix[Double]): DenseMatrix[Double] = {
+    val begin = System.nanoTime
+    val out = QRUtils.qrR(DenseMatrix.vertcat(a, b), false)
+    acc += ((System.nanoTime - begin) / 1e6)
+    out
   }
 
   def qrQR(mat: RowPartitionedMatrix): (RowPartitionedMatrix, DenseMatrix[Double]) = {
@@ -166,7 +176,8 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
       }
     }
 
-    val qrResult = Utils.treeReduce(qrTree, reduceQRSolve, depth=2)
+    val depth = (math.log(A.rdd.partitions.size)/math.log(2)).toInt
+    val qrResult = Utils.treeReduce(qrTree, reduceQRSolve, depth=depth)
 
     val results = lambdas.map { lambda =>
       // We only have one partition right now
@@ -210,7 +221,8 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
       }
     }
 
-    val qrResult = Utils.treeReduce(qrTree, reduceQRSolveMany, depth=2)
+    val qrResult = Utils.treeReduce(qrTree, reduceQRSolveMany, 
+      depth=(math.log(A.rdd.partitions.size)/math.log(2)).toInt)
     val rFinal = qrResult._1
 
     val results = lambdas.zip(qrResult._2).map { case (lambda, bFinal) =>
@@ -257,6 +269,8 @@ object TSQR extends Logging {
       .setJars(SparkContext.jarOfClass(this.getClass).toSeq)
     val sc = new SparkContext(conf)
 
+    Thread.sleep(5000)
+
     val rowsPerPart = numRows / numParts
     val matrixParts = sc.parallelize(1 to numParts, numParts).mapPartitions { part =>
       val data = new Array[Double](rowsPerPart * numCols)
@@ -276,16 +290,7 @@ object TSQR extends Logging {
     var end = System.nanoTime()
     logInfo("Random TSQR of " + numRows + "x" + numCols + " took " + (end - begin)/1e6 + "ms")
 
-    // Use the linear solver
-    begin = System.nanoTime()
-    val b =  A.mapPartitions(
-      part => DenseMatrix.rand(part.rows, numClasses)).cache()
-
-    val x = new TSQR().solveLeastSquares(A, b)
-    end = System.nanoTime()
-
     sc.stop()
-    logInfo("Linear solver of " + numRows + "x" + numCols + " took " + (end - begin)/1e6 + "ms")
   }
   
 }
