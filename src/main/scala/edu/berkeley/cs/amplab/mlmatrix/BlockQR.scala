@@ -6,6 +6,7 @@ import scala.collection.mutable.ArrayBuffer
 import breeze.linalg._
 
 import org.apache.spark.rdd.RDD
+import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 
@@ -91,6 +92,7 @@ class BlockQR extends Logging with Serializable {
 
     // Loop over number of column blocks
     (0 until numColBlocks).foreach { colBlock =>
+      val begin = System.nanoTime
       // Contract is that trailing matrix contains blocks that need to be QR'ed
       // so always get its first column block 
       val cb = trailingMatrix.getColBlock(0).cache()
@@ -100,10 +102,16 @@ class BlockQR extends Logging with Serializable {
       val (qb, rb) = new TSQR().qrQR(cb)
 
       // TODO: Uncomment for profiling / memory management ?
-      // qb.cache()
-      // qb.rdd.count()
+      qb.cache()
+      qb.rdd.count()
+
+      cb.rdd.unpersist()
+
+      logInfo("TSQR " + colBlock + " took " + (System.nanoTime - begin) / 1e6)
 
       if (colBlock != numColBlocks - 1) {
+        val beginLU = System.nanoTime
+
         // Step 3: LU of Q - S
         val (yMat, tMat, rMat) = modifiedLU(qb, rb)
 
@@ -111,8 +119,14 @@ class BlockQR extends Logging with Serializable {
         rMatrixParts += mat.rdd.context.makeRDD(Seq(new BlockPartition(colBlock, colBlock, rMat)), 1)
 
         // TODO: Uncomment for memory management ?
-        // yMat.cache()
-        // yMat.count
+        yMat.cache()
+        yMat.count
+
+        qb.rdd.unpersist()
+
+        logInfo("Modified LU " + colBlock + " took " + (System.nanoTime - beginLU) / 1e6)
+
+        val beginTU = System.nanoTime
 
         val tMatBC = qb.rdd.sparkContext.broadcast(tMat)
         // Trailing update
@@ -133,15 +147,21 @@ class BlockQR extends Logging with Serializable {
           }
         }
 
+        val firstMulAcc = yMat.context.accumulator(0.0, "first mult acc")
+
         val rowJoined = yMulticast.join(trailingWithRowBlocks,
           numPartitions=numRowBlocks*numColBlocks).map { x =>
+          val begin = System.nanoTime
           val rowPart = x._2._1
           val trailingPart = x._2._2
           val res = rowPart.t * (trailingPart.mat)
+          firstMulAcc += ((System.nanoTime - begin)/1e6)
           ( (trailingPart.blockIdRow * numColBlocks + trailingPart.blockIdCol),
             RowJoinedPartition(trailingPart.blockIdRow, trailingPart.blockIdCol,
                                rowPart, trailingPart.mat, res))
         }.cache()
+
+        rowJoined.count()
        
         // Sum its outputs
         val colSums = rowJoined.map(x => (x._2.blockIdCol, x._2.yTimesA)).reduceByKey { case (x, y) =>
@@ -152,16 +172,27 @@ class BlockQR extends Logging with Serializable {
           }
         }
 
+        colSums.cache().count
+
+        val secondMulAcc = yMat.context.accumulator(0.0, "second mult acc")
+
         // Do the column wise multiply, subtract
         val finalSums = colSums.join(rowJoined, numPartitions=numRowBlocks*numColBlocks).map { x =>
+          val begin = System.nanoTime
           val colSumVal = x._2._1
           val rowJoinedVal = x._2._2
           val res = rowJoinedVal.aPart - 
             (rowJoinedVal.yPart * (tMatBC.value.t * (colSumVal)))
+          secondMulAcc += ((System.nanoTime - begin)/1e6)
+
           BlockPartition(rowJoinedVal.blockIdRow, rowJoinedVal.blockIdCol, res)
         }
 
+        finalSums.cache().count
+
         rowJoined.unpersist()
+        colSums.unpersist()
+        yMat.unpersist()
        
         val finalBlockMatrix = new BlockPartitionedMatrix(trailingMatrix.numRowBlocks,
           trailingMatrix.numColBlocks - 1, finalSums).cache()
@@ -174,7 +205,8 @@ class BlockQR extends Logging with Serializable {
        
         // TODO: This won't work if we have more than 2B rows ?
         trailingMatrix = finalBlockMatrix(rMat.rows until finalBlockMatrix.numRows.toInt,
-          ::).cache()
+          ::)
+        logInfo("Trailing update " + colBlock + " took " + (System.nanoTime - beginTU)/1e6)
       } else {
         // Create an RDD from rMat
         rMatrixParts += mat.rdd.context.makeRDD(Seq(new BlockPartition(colBlock, colBlock, rb)), 1)
@@ -188,22 +220,26 @@ class BlockQR extends Logging with Serializable {
 object BlockQR extends Logging {
 
   def main(args: Array[String]) {
-    if (args.length < 5) {
-      println("Usage: BlockQR <master> <sparkHome> <numRows> <numCols> <rowsPerPart> <colsPerPart>")
+    if (args.length < 4) {
+      println("Usage: BlockQR <master> <numRows> <numCols> <rowsPerPart> <colsPerPart>")
       System.exit(0)
     }
 
     val sparkMaster = args(0)
-    val sparkHome = args(1)
-    val numRows = args(2).toInt
-    val numCols = args(3).toInt
-    val rowsPerPart = args(4).toInt
-    val colsPerPart = args(5).toInt
+    val numRows = args(1).toInt
+    val numCols = args(2).toInt
+    val rowsPerPart = args(3).toInt
+    val colsPerPart = args(4).toInt
 
-    val sc = new SparkContext(sparkMaster, "BlockQR", sparkHome,
-      SparkContext.jarOfClass(this.getClass).toSeq)
+    val conf = new SparkConf()
+      .setMaster(sparkMaster)
+      .setAppName("BlockQR")
+      .setJars(SparkContext.jarOfClass(this.getClass).toSeq)
+    val sc = new SparkContext(conf)
 
-    val matrixRDD = sc.parallelize(1 to numRows).map { row =>
+    Thread.sleep(5000)
+
+    val matrixRDD = sc.parallelize(1 to numRows, numRows / rowsPerPart).map { row =>
       Array.fill(numCols)(ThreadLocalRandom.current().nextGaussian())
     }
 
@@ -214,7 +250,7 @@ object BlockQR extends Logging {
     val dim = A.getDim
 
     var begin = System.nanoTime()
-    val r = new BlockQR().qrR(A).collect()
+    val r = new BlockQR().qrR(A).rdd.count()
     var end = System.nanoTime()
     println("BlockQR took " + (end - begin)/1e6 + " ms")
 
