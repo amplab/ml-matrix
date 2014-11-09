@@ -320,7 +320,8 @@ class BlockPartitionedMatrix(
 
     val newBlockIds = blocksFiltered.mapValues { bi =>
       (bi.blockIdRow - startRowBlock, bi.blockIdCol - startColBlock)
-    }
+    }.map(identity)
+
     val newBlockIdBcast = rdd.context.broadcast(newBlockIds)
 
     val prunedRdd = PartitionPruningRDD.create(rdd, part => blocksFilteredIds.contains(part))
@@ -361,7 +362,7 @@ object BlockPartitionedMatrix {
         numRows += 1L
         numCols = iter.next().length
       }
-      Iterator((part, numRows, numCols))
+      Iterator.single( (part, numRows, numCols) )
     }.collect().sortBy(x => x._1)
 
     val cumulativeSum = perPartDims.scanLeft(0L){ case(x1, x2) =>
