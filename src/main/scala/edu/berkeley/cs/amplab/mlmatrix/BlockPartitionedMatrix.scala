@@ -227,12 +227,15 @@ class BlockPartitionedMatrix(
       rowRange.filter(i => i >= bi._2.startRow && i < bi._2.startRow + bi._2.numRows).nonEmpty
     }.values.toSeq.sortBy(x => x.blockIdRow)
 
+    val blocksFilteredIds = blocksWithRows.map(bi => bi.partitionId).toSet
+    val prunedRdd = PartitionPruningRDD.create(rdd, part => blocksFilteredIds.contains(part))
+
     // Renumber the blockIdRows from 0 to number of row blocks
     val newBlockIdMap = blocksWithRows.map(x => x.blockIdRow).distinct.zipWithIndex.toMap
 
     val newBlockIdBcast = rdd.context.broadcast(newBlockIdMap)
 
-    val blockRDD = rdd.filter { part =>
+    val blockRDD = prunedRdd.filter { part =>
       newBlockIdBcast.value.contains(part.blockIdRow)
     }.map { part =>
       // Get a new blockIdRow, keep same blockIdCol and update the matrix
@@ -258,11 +261,14 @@ class BlockPartitionedMatrix(
       colRange.filter(i => i >= bi._2.startCol && i < bi._2.startCol + bi._2.numCols).nonEmpty
     }.values.toSeq.sortBy(x => x.blockIdCol)
 
+    val blocksFilteredIds = blocksWithCols.map(bi => bi.partitionId).toSet
+    val prunedRdd = PartitionPruningRDD.create(rdd, part => blocksFilteredIds.contains(part))
+
     // Renumber the blockIdRows from 0 to number of row blocks
     val newBlockIdMap = blocksWithCols.map(x => x.blockIdCol).distinct.zipWithIndex.toMap
     val newBlockIdBcast = rdd.context.broadcast(newBlockIdMap)
 
-    val blockRDD = rdd.filter { part =>
+    val blockRDD = prunedRdd.filter { part =>
       newBlockIdBcast.value.contains(part.blockIdCol)
     }.map { part =>
       // Get a new blockIdRow, keep same blockIdCol and update the matrix
