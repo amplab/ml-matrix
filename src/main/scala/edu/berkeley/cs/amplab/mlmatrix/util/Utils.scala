@@ -14,19 +14,7 @@ object Utils {
    * Deep copy a Breeze matrix
    */
   def cloneMatrix(in: DenseMatrix[Double]) = {
-    // val arrCopy = new Array[Double](in.rows * in.cols)
-    // System.arraycopy(in.data, 0, arrCopy, 0, arrCopy.length)
-    val out = new DenseMatrix[Double](in.rows, in.cols)
-    var r = 0
-    while (r < in.rows) {
-      var c = 0
-      while (c < in.cols) {
-        out(r, c) = in(r, c)
-        c = c + 1
-      }
-      r = r + 1
-    }
-    out
+    in.copy
   }
 
   def decomposeLowerUpper(A: DenseMatrix[Double]): (DenseMatrix[Double], DenseMatrix[Double]) = {
@@ -103,7 +91,7 @@ object Utils {
     var numPartitions = partiallyAggregated.partitions.size
     val scale = math.max(math.ceil(math.pow(numPartitions, 1.0 / depth)).toInt, 2)
     // If creating an extra level doesn't help reduce the wall-clock time, we stop tree aggregation.
-    while (numPartitions > scale + numPartitions / scale) {
+    while (numPartitions > 1) { // while (numPartitions > scale + numPartitions / scale) {
       numPartitions /= scale
       val curNumPartitions = numPartitions
       partiallyAggregated = partiallyAggregated.mapPartitionsWithIndex { (i, iter) =>
