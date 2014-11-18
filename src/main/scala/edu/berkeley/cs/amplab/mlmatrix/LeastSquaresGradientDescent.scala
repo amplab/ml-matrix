@@ -1,7 +1,9 @@
 package edu.berkeley.cs.amplab.mlmatrix
 
-
 import breeze.linalg._
+
+import edu.berkeley.cs.amplab.mlmatrix.util.QRUtils
+import edu.berkeley.cs.amplab.mlmatrix.util.Utils
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
@@ -10,17 +12,15 @@ import org.apache.spark.SparkConf
 import org.apache.spark.SparkException
 import org.apache.spark.scheduler.StatsReportListener
 
+import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.regression.LinearRegressionWithSGD
 import org.apache.spark.mllib.regression.RidgeRegressionWithSGD
 import org.apache.spark.mllib.regression.LabeledPoint
-import org.apache.spark.mllib.linalg.Vectors
 
-import edu.berkeley.cs.amplab.mlmatrix.util.QRUtils
-import edu.berkeley.cs.amplab.mlmatrix.util.Utils
-
-/*Solves for x in formula Ax=b by minimizing the least squares loss function
- *using stochastic gradient descent*/
-
+ /**
+  *Solves for x in formula Ax=b by minimizing the least squares loss function
+  *using stochastic gradient descent
+  */
 class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
   miniBatchFraction: Double) extends RowPartitionedSolver with Logging with Serializable {
 
@@ -32,24 +32,12 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
         "Multiple right hand sides are not supported")
     }
 
-    /*
-    val data = A.rdd.zip(b.rdd).flatMap{ x =>
-      var features = x._1.mat.toArray2().map(row => Vectors.dense(row))
-      val labels = x._2.mat.toArray2().map(row => row(0))
-      features.zip(labels).map(x => LabeledPoint(x._2, x._1))
-    }
-    */
-
     // map RDD[RowPartition] to RDD[LabeledPoint]
-    val data = A.rdd.zip(b.rdd).flatMap{ x =>
-      //var features = x._1.mat.toArray2().map(row => Vectors.dense(row))
-
+    val data = A.rdd.zip(b.rdd).flatMap { x =>
       val feature_rows = x._1.mat.data.grouped(x._1.mat.rows).toSeq.transpose
       var features = feature_rows.map(row => Vectors.dense(row.toArray))
-      //val labels = x._2.mat.toArray2().map(row => row(0))
       val label_rows = x._2.mat.data.grouped(x._2.mat.rows).toSeq.transpose
       val labels = label_rows.map(row => row(0))
-
       features.zip(labels).map(x => LabeledPoint(x._2, x._1))
     }
 
@@ -68,8 +56,8 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
         "Multiple right hand sides are not supported")
     }
 
-    lambdas.map{ lambda =>
-      val data = A.rdd.zip(b.rdd).flatMap{ x =>
+    lambdas.map { lambda =>
+      val data = A.rdd.zip(b.rdd).flatMap { x =>
         val feature_rows = x._1.mat.data.grouped(x._1.mat.rows).toSeq.transpose
         var features = feature_rows.map(row => Vectors.dense(row.toArray))
         val label_rows = x._2.mat.data.grouped(x._2.mat.rows).toSeq.transpose
@@ -89,7 +77,7 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
       b: RDD[Seq[DenseMatrix[Double]]],
       lambdas: Array[Double]): Seq[DenseMatrix[Double]] = {
 
-    val multipleRHS = b.map{ matSeq =>
+    val multipleRHS = b.map { matSeq =>
       matSeq.forall{ mat => mat.cols!=1}
     }.reduce{ (a,b) => a & b}
 
@@ -100,22 +88,19 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
     }
     val lambdaWithIndex = lambdas.zipWithIndex
 
-    lambdaWithIndex.map{ lambdaI =>
-      //b is an RDD
+    lambdaWithIndex.map { lambdaI =>
+
       val lambda = lambdaI._1
       val bIndex = lambdaI._2
 
-      val data = A.rdd.zip(b).flatMap{ x =>
-        //index into b.rdd ( Sequence of DenseMatrices with the same
-        //index given by lambdas
-
+      // b is an RDD
+      val data = A.rdd.zip(b).flatMap { x =>
         val bVector = x._2(bIndex)
-
+        // TODO: Write a util function to convert breeze matrix to Array[Vector]
         val feature_rows = x._1.mat.data.grouped(x._1.mat.rows).toSeq.transpose
         var features = feature_rows.map(row => Vectors.dense(row.toArray))
         val label_rows = bVector.data.grouped(bVector.rows).toSeq.transpose
         val labels = label_rows.map(row => row(0))
-
         features.zip(labels).map(x => LabeledPoint(x._2, x._1))
       }
 

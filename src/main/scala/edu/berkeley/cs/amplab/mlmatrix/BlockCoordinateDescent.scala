@@ -1,17 +1,13 @@
 package edu.berkeley.cs.amplab.mlmatrix
 
-import java.util.concurrent.ThreadLocalRandom
-import scala.collection.mutable.ArrayBuffer
-
 import breeze.linalg._
-
-import org.apache.spark.rdd.RDD
-import org.apache.spark.SparkConf
-import org.apache.spark.SparkContext
-import org.apache.spark.SparkContext._
 
 import edu.berkeley.cs.amplab.mlmatrix.util.QRUtils
 import edu.berkeley.cs.amplab.mlmatrix.util.Utils
+
+import org.apache.spark.SparkConf
+import org.apache.spark.SparkContext
+import org.apache.spark.SparkContext._
 
 class BlockCoordinateDescent(colBlockSize: Int, numEpochs: Int) extends Logging with Serializable {
 

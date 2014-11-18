@@ -4,9 +4,10 @@ import java.util.concurrent.ThreadLocalRandom
 import scala.reflect.ClassTag
 
 import breeze.linalg._
+
+import com.github.fommil.netlib.LAPACK.{getInstance=>lapack}
 import org.netlib.util.intW
 import org.netlib.util.doubleW
-import com.github.fommil.netlib.LAPACK.{getInstance=>lapack}
 
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.rdd.RDD

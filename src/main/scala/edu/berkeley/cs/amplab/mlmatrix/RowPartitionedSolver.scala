@@ -19,20 +19,20 @@ abstract class RowPartitionedSolver {
     solveLeastSquaresWithManyL2(A, b, Array(lambda)).head
   }
 
-  /*
-  Solves a single least squares problem with l2 regularization using
-  several different lambdas as regularization parameters
-  */
+   /**
+    *Solves a single least squares problem with l2 regularization using
+    *several different lambdas as regularization parameters
+    */
   def solveLeastSquaresWithManyL2(
       A: RowPartitionedMatrix,
       b: RowPartitionedMatrix,
       lambdas: Array[Double]): Seq[DenseMatrix[Double]]
 
-  /*
-  Solves several least squares problems (by varying the b vector and keeping
-  the A matrix constant) with l2 regularization using different lambdas as
-  regularization parameters. 
-  */
+   /**
+    *Solves several least squares problems (by varying the b vector and keeping
+    *the A matrix constant) with l2 regularization using different lambdas as
+    *regularization parameters.
+    */
   // TODO: This interface should ideally take in Seq[RowPartitionedMatrix] ?
   def solveManyLeastSquaresWithL2(
       A: RowPartitionedMatrix,

@@ -4,41 +4,16 @@ import java.util.concurrent.ThreadLocalRandom
 
 import breeze.linalg._
 
+import edu.berkeley.cs.amplab.mlmatrix.util.QRUtils
+import edu.berkeley.cs.amplab.mlmatrix.util.Utils
+
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.SparkException
 import org.apache.spark.scheduler.StatsReportListener
 
-import edu.berkeley.cs.amplab.mlmatrix.util.QRUtils
-import edu.berkeley.cs.amplab.mlmatrix.util.Utils
-
-
 object StabilityChecker extends Logging {
-
-/*
-  def createVandermondeMatrix(
-    sc: SparkContext,
-    numRows: Int,
-    numCols: Int,
-    numParts: Int): (RowPartitionedMatrix, RowPartitionedMatrix) = {
-
-    val t = (0 until numRows).map(x => x.toDouble / (numRows -1))
-    val b = t.map(x => Math.exp(Math.sin(4*x)))
-    val randA = RowPartitionedMatrix.createRandom(sc, numRows, numCols, numParts)
-    val tBroadcast = sc.broadcast(t)
-    val A = randA.mapRows { case (id, row) =>
-      val tVal = tBroadcast.value
-      (0 until row.length).map(x => math.pow(tVal(id.toInt), x)).toArray
-    }
-    val bBroadcast = sc.broadcast(b)
-    val bMat =  A.mapRows { case (id, row) =>
-      val bVal = bBroadcast.value
-      Array(bVal(id.toInt))
-    }
-    (A, bMat)
-  }
-  */
 
   def computeRelativeError(xComputed: DenseMatrix[Double], xLocal: DenseMatrix[Double]) = {
     val relativeError = norm((xComputed - xLocal).toDenseVector)/norm(xLocal.toDenseVector)
