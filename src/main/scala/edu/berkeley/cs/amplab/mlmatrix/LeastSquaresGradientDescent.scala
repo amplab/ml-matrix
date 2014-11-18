@@ -6,6 +6,7 @@ import breeze.linalg._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
+import org.apache.spark.SparkConf
 import org.apache.spark.SparkException
 import org.apache.spark.scheduler.StatsReportListener
 
@@ -129,34 +130,23 @@ object LeastSquaresGradientDescent extends Logging {
 
   def main(args: Array[String]) {
     if (args.length < 8) {
-      println("Usage: LeastSquaresGradientDescent  <master> <sparkHome> <numRows> <numCols> <numParts> <numClasses> <numIterations> <stepSize> [cores]")
+      println("Usage: LeastSquaresGradientDescent  <master> <numRows> <numCols> <numParts> <numClasses> <numIterations> <stepSize> <miniBatchFraction")
       System.exit(0)
     }
     val sparkMaster = args(0)
-    val sparkHome = args(1)
-    val numRows = args(2).toInt
-    val numCols = args(3).toInt
-    val numParts = args(4).toInt
-    val numClasses = args(5).toInt
-    val numIterations = args(6).toInt
-    val stepSize = args(7).toDouble
+    val numRows = args(1).toInt
+    val numCols = args(2).toInt
+    val numParts = args(3).toInt
+    val numClasses = args(4).toInt
+    val numIterations = args(5).toInt
+    val stepSize = args(6).toDouble
+    val miniBatchFraction = args(7).toDouble
 
-    val coresPerTask = if (args.length > 8) {
-      args(8).toInt
-    } else {
-      1
-    }
-
-    println("Num rows is " + numRows)
-    println("Num cols is " + numCols)
-    println("Num parts is " + numParts)
-    println("Num classes is " + numClasses)
-    println("Num iterations is " + numIterations)
-    println("Step size is " + stepSize)
-
-    val sc = new SparkContext(sparkMaster, "LeastSquaresGradientDescent", sparkHome,
-      SparkContext.jarOfClass(this.getClass).toSeq)
-      sc.setLocalProperty("spark.task.cpus", coresPerTask.toString)
+    val conf = new SparkConf()
+      .setMaster(sparkMaster)
+      .setAppName("LeastSquaresGradientDescent")
+      .setJars(SparkContext.jarOfClass(this.getClass).toSeq)
+      val sc = new SparkContext(conf)
 
 
     val A = RowPartitionedMatrix.createRandom(sc, numRows, numCols, numParts)

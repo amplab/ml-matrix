@@ -63,7 +63,7 @@ object StabilityChecker extends Logging {
     val coresPerTask = 1
     val stepSize = args(7).toDouble
     val numIterations = args(8).toInt
-    val miniBatchFraction = args(9).toInt
+    val miniBatchFraction = args(9).toDouble
 
     val sc = new SparkContext(sparkMaster, "NormalEquations", sparkHome,
       SparkContext.jarOfClass(this.getClass).toSeq)

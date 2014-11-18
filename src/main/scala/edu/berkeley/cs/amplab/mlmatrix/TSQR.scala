@@ -143,7 +143,7 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
 
   private def reduceYTR(
       a: (DenseMatrix[Double], Array[Double], DenseMatrix[Double]),
-      b: (DenseMatrix[Double], Array[Double], DenseMatrix[Double])) 
+      b: (DenseMatrix[Double], Array[Double], DenseMatrix[Double]))
     : (DenseMatrix[Double], Array[Double], DenseMatrix[Double]) = {
     QRUtils.qrYTR(DenseMatrix.vertcat(a._3, b._3))
   }
@@ -196,7 +196,7 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
       b: RDD[Seq[DenseMatrix[Double]]],
       lambdas: Array[Double]): Seq[DenseMatrix[Double]] = {
 
-    val matrixParts = A.rdd.zip(b).map { x => 
+    val matrixParts = A.rdd.zip(b).map { x =>
       (x._1.mat, x._2)
     }
 
@@ -287,5 +287,5 @@ object TSQR extends Logging {
     sc.stop()
     logInfo("Linear solver of " + numRows + "x" + numCols + " took " + (end - begin)/1e6 + "ms")
   }
-  
+
 }
