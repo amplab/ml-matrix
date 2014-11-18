@@ -2,7 +2,7 @@ package edu.berkeley.cs.amplab.mlmatrix
 
 import breeze.linalg._
 
-class BlockCoordinateDescent(colBlockSize: Int, numEpochs: Int) extends Logging with Serializable {
+class BlockCoordinateDescent extends Logging with Serializable {
 
   def solveOnePassL2(
       aParts: Iterator[RowPartitionedMatrix],
