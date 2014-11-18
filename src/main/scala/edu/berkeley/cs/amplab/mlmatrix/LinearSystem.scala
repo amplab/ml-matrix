@@ -21,7 +21,7 @@ case class LinearSystem(
     // val bLocal = b.collect()
     def computeResidualNorm(xComputed: DenseMatrix[Double]) = {
       val xBroadcast = A.rdd.context.broadcast(xComputed)
-      val axComputed = A.asInstanceOf[RowPartitionedMatrix].mapPartitions { part =>
+      val axComputed = A.mapPartitions { part =>
         part*xBroadcast.value
       }
       val residualNorm = norm((b.collect() - axComputed.collect()).toDenseVector)
@@ -45,7 +45,7 @@ object LinearSystem {
     * diagonal matrix with orthogonal matrices U and V on the left and right respectively.
     * When we create the matrix U, we create a matrix with one additional column, called qe.
     * The vector qe is then orthogonal to the range of A and we can use qe to create a
-    * vector b at the specified angle theta away from the range of A. 
+    * vector b at the specified angle theta away from the range of A.
     */
   def createLinearSystems(
     sc: SparkContext,
