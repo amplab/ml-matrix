@@ -51,7 +51,7 @@ object LinearSystem {
     //Create a random matrix with specific condition number
     val Right = DenseMatrix.rand(numCols, numCols)
     //Only use the orthogonal part of this matrix, throwing away R
-    val V = QRUtils.qrQ(Right)
+    val V = QRUtils.qrQR(Right)._1
     var diag = DenseMatrix.zeros[Double](numCols, numCols)
     (0 until numCols).foreach { c =>
       diag(c, c) = math.pow(condNumber, -1.0 * c.toDouble/numCols)
@@ -102,7 +102,7 @@ object LinearSystem {
     //Create a random matrix with specific condition number
     val Right = DenseMatrix.rand(numCols, numCols)
     //Only use the orthogonal part of this matrix, throwing away R
-    val V = QRUtils.qrQ(Right)
+    val V = QRUtils.qrQR(Right)._1
 
     val Left = RowPartitionedMatrix.createRandom(sc, numRows, numCols + 1, numParts)
     //FIXME, we are throwing away rLeft, there could be a more efficient way to do this

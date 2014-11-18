@@ -48,7 +48,7 @@ object StabilityChecker extends Logging {
   def main(args: Array[String]) {
     if (args.length < 8) {
       println("Usage: StabilityChecker <master> <sparkHome> <numRows> <numCols> <numParts> " +
-        "<numClasses> <solver: tsqr|normal|sgd|local> <stepsize> <numIters> ")
+        "<numClasses> <solver: tsqr|normal|sgd|local> <stepsize> <numIters>")
       System.exit(0)
     }
 
@@ -90,11 +90,9 @@ object StabilityChecker extends Logging {
         case "normal" =>
           new NormalEquations().solveLeastSquares(ls.A, ls.b)
         case "sgd" =>
-          new LinearRegression(numIterations, stepSize).solveLeastSquares(ls.A, ls.b).collect()
+          new LeastSquaresGradientDescent(numIterations, stepSize).solveLeastSquares(ls.A, ls.b)
         case "tsqr" =>
           new TSQR().solveLeastSquares(ls.A, ls.b)
-        //case "blockcd" =>
-          // BlockCoordinateDescent.solveLeastSquares(ls.A, ls.b)
         case "local" =>
           val (r, qtb) = QRUtils.qrSolve(ls.A.collect(), ls.b.collect())
           //val svds = Singular.SVDValues(ls.A.collect())
@@ -120,7 +118,7 @@ object StabilityChecker extends Logging {
 
       //println("Condition number of A inputed by algorithm is " + condNumbers(i))
       //println("Condition number of A computed by SVD is " + conditionNumber)
-      println(conditionNumberR + ", " ls.A.condEst(R))
+      println(conditionNumberR + ", " + ls.A.condEst(R))
       i = i+1
     }
   }

@@ -10,6 +10,7 @@ import org.apache.spark.SparkException
 import org.apache.spark.scheduler.StatsReportListener
 
 import org.apache.spark.mllib.regression.LinearRegressionWithSGD
+import org.apache.spark.mllib.regression.RidgeRegressionWithSGD
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.linalg.Vectors
 
@@ -19,14 +20,28 @@ import edu.berkeley.cs.amplab.mlmatrix.util.Utils
 /*Solves for x in formula Ax=b by minimizing the least squares loss function
  *using stochastic gradient descent*/
 
-class LinearRegression(numIterations: Int, stepSize: Double) extends Logging with Serializable {
+class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double) extends RowPartitionedSolver with Logging with Serializable {
 
-  def solveLeastSquares(A: RowPartitionedMatrix, b: RowPartitionedMatrix):
-    RowPartitionedMatrix = {
+  override def solveLeastSquares(A: RowPartitionedMatrix, b: RowPartitionedMatrix):
+    DenseMatrix[Double] = {
+
+    if(b.getDim()._2 != 1) {
+      throw new SparkException(
+        "Multiple right hand sides are not supported")
+    }
+
+    /*
+    val data = A.rdd.zip(b.rdd).flatMap{ x =>
+      var features = x._1.mat.toArray2().map(row => Vectors.dense(row))
+      val labels = x._2.mat.toArray2().map(row => row(0))
+      features.zip(labels).map(x => LabeledPoint(x._2, x._1))
+    }
+    */
+
     // map RDD[RowPartition] to RDD[LabeledPoint]
     val data = A.rdd.zip(b.rdd).flatMap{ x =>
       //var features = x._1.mat.toArray2().map(row => Vectors.dense(row))
-      //  val rows = rowPart.mat.data.grouped(rowPart.mat.rows).toSeq.transpose
+
       val feature_rows = x._1.mat.data.grouped(x._1.mat.rows).toSeq.transpose
       var features = feature_rows.map(row => Vectors.dense(row.toArray))
       //val labels = x._2.mat.toArray2().map(row => row(0))
@@ -38,17 +53,83 @@ class LinearRegression(numIterations: Int, stepSize: Double) extends Logging wit
 
     // Train(RDD[LabeledPoint], numIterations, stepSize, miniBatchFraction)
     val model = LinearRegressionWithSGD.train(data, numIterations, stepSize, 1.0)
-    val x = model.weights // Model.weights is a Vector
-    RowPartitionedMatrix.fromArray(A.rdd.context.parallelize(x.toArray.map(x => Array(x)),
-      A.rdd.partitions.size))
+    DenseMatrix(model.weights.toArray)
+  }
+
+  def solveLeastSquaresWithManyL2(
+      A: RowPartitionedMatrix,
+      b: RowPartitionedMatrix,
+      lambdas: Array[Double]): Seq[DenseMatrix[Double]] = {
+
+    if(b.getDim()._2 != 1) {
+      throw new SparkException(
+        "Multiple right hand sides are not supported")
+    }
+
+    /*
+    val data = A.rdd.zip(b.rdd).flatMap{ x =>
+      var features = x._1.mat.toArray2().map(row => Vectors.dense(row))
+      val labels = x._2.mat.toArray2().map(row => row(0))
+      features.zip(labels).map(x => LabeledPoint(x._2, x._1))
+    }
+    */
+
+
+    lambdas.map{ lambda =>
+      val data = A.rdd.zip(b.rdd).flatMap{ x =>
+        val feature_rows = x._1.mat.data.grouped(x._1.mat.rows).toSeq.transpose
+        var features = feature_rows.map(row => Vectors.dense(row.toArray))
+        val label_rows = x._2.mat.data.grouped(x._2.mat.rows).toSeq.transpose
+        val labels = label_rows.map(row => row(0))
+
+        features.zip(labels).map(x => LabeledPoint(x._2, x._1))
+      }
+
+      val model = RidgeRegressionWithSGD.train(data, numIterations, stepSize, lambda, 1.0)
+      DenseMatrix(model.weights.toArray)
+    }
+  }
+
+  def solveManyLeastSquaresWithL2(
+      A: RowPartitionedMatrix,
+      b: RDD[Seq[DenseMatrix[Double]]],
+      lambdas: Array[Double]): Seq[DenseMatrix[Double]] = {
+
+    val multipleRHS = b.map{ matSeq =>
+      matSeq.forall{ mat => mat.cols!=1}
+    }.reduce{ (a,b) => a & b}
+
+    if (multipleRHS) {
+      throw new SparkException(
+        "Multiple right hand sides are not supported"
+      )
+    }
+    val lambdaWithIndex = lambdas.zipWithIndex
+
+    lambdaWithIndex.map{ lambdaI =>
+      val lambda = lambdaI._1
+      val index = lambdaI._2
+      val data = A.rdd.zip(b).flatMap{ x =>
+        val bVector = x._2(index)
+        val feature_rows = x._1.mat.data.grouped(x._1.mat.rows).toSeq.transpose
+        var features = feature_rows.map(row => Vectors.dense(row.toArray))
+        val label_rows = bVector.data.grouped(bVector.rows).toSeq.transpose
+        val labels = label_rows.map(row => row(0))
+
+        features.zip(labels).map(x => LabeledPoint(x._2, x._1))
+      }
+
+      val model = RidgeRegressionWithSGD.train(data, numIterations, stepSize, lambda, 1.0)
+      DenseMatrix(model.weights.toArray)
+    }
   }
 }
 
-object LinearRegression extends Logging {
+object LeastSquaresGradientDescent extends Logging {
 
   def main(args: Array[String]) {
     if (args.length < 8) {
-      println("Usage: LinearRegression <master> <sparkHome> <numRows> <numCols> <numParts> <numClasses> <numIterations> <stepSize> [cores]")
+      println("Usage: LeastSquaresGradientDescent  <master> <sparkHome> <numRows> <numCols> <numParts> <numClasses> <numIterations> <stepSize> [cores]")
       System.exit(0)
     }
     val sparkMaster = args(0)
@@ -73,9 +154,8 @@ object LinearRegression extends Logging {
     println("Num iterations is " + numIterations)
     println("Step size is " + stepSize)
 
-    val sc = new SparkContext(sparkMaster, "LinearRegression", sparkHome,
+    val sc = new SparkContext(sparkMaster, "LeastSquaresGradientDescent", sparkHome,
       SparkContext.jarOfClass(this.getClass).toSeq)
-      sc.addSparkListener(new StatsReportListener)
       sc.setLocalProperty("spark.task.cpus", coresPerTask.toString)
 
     //val lss = LinearSystem.createLinearSystems(sc, numRows, numCols, numClasses,
@@ -102,7 +182,7 @@ object LinearRegression extends Logging {
     // val conditionNumber = svds.data.max / svds.data.min
 
     var begin = System.nanoTime()
-    val x = new LinearRegression(numIterations, stepSize).solveLeastSquares(A, b).collect()
+    val x = new LeastSquaresGradientDescent(numIterations, stepSize).solveLeastSquares(A, b)
     var end = System.nanoTime()
 
     //println("For " + numRows + " " + localA.columns + " err " +
