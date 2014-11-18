@@ -2,7 +2,7 @@ package edu.berkeley.cs.amplab.mlmatrix
 
 import breeze.linalg._
 
-object BlockCoordinateDescent extends Logging with Serializable {
+class BlockCoordinateDescent extends Logging with Serializable {
 
   def solveOnePassL2(
       aParts: Iterator[RowPartitionedMatrix],
@@ -20,14 +20,14 @@ object BlockCoordinateDescent extends Logging with Serializable {
       }
       arr.toSeq
     }.cache()
- 
+
     // Step 2:
     try {
       val models = aParts.map { aPart =>
         aPart.cache()
- 
+
         // Compute Aj \ (b - output + AjXj)
-        // 
+        //
         // NOTE: In the one pass case, Xj is always zero.
         // So we just compute (b - output)
         val bOutput = b.rdd.zip(output).map { part =>
@@ -35,9 +35,9 @@ object BlockCoordinateDescent extends Logging with Serializable {
             part._1.mat - out
           }
         }
-       
+
         val newXjs = solver.solveManyLeastSquaresWithL2(aPart, bOutput, lambdas)
-     
+
         // Update output
         val newXBroadcast = b.rdd.context.broadcast(newXjs)
         val newOutput = aPart.rdd.zip(output).map { part =>
@@ -52,14 +52,14 @@ object BlockCoordinateDescent extends Logging with Serializable {
           }
           part._2
         }.cache()
-     
+
         // Materialize this output and remove the older output
         newOutput.count()
         output.unpersist()
         aPart.rdd.unpersist()
-     
+
         newXBroadcast.unpersist()
-        output = newOutput 
+        output = newOutput
 
         newXjs
       }
@@ -75,6 +75,7 @@ object BlockCoordinateDescent extends Logging with Serializable {
     lambdas: Array[Double],
     numIters: Int,
     solver: RowPartitionedSolver): Seq[Seq[DenseMatrix[Double]]]  = {
+
     val numColBlocks = aParts.length
     val numColsb = b.numCols()
 
@@ -151,12 +152,4 @@ object BlockCoordinateDescent extends Logging with Serializable {
     }
     xs
   }
-
-  // 
-  // def solveLeastSquaresWithL2(
-  //   A: BlockPartitionedMatrix,
-  //   b: RowPartitionedMatrix,
-  //   lambdas: Seq[Double],
-  //   numIters: Int,
-  //   solver: RowPartitionedSolver)
 }

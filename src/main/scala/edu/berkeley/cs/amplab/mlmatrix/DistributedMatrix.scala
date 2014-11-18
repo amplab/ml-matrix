@@ -1,7 +1,7 @@
 package edu.berkeley.cs.amplab.mlmatrix
 
-import scala.reflect.ClassTag
 import breeze.linalg.DenseMatrix
+import scala.reflect.ClassTag
 
 /**
  * Class representing a DistributedMatrix.
@@ -107,7 +107,7 @@ abstract class DistributedMatrix(
 
   //
   // Matrix-Matrix operations
-  // 
+  //
   def +(other: DistributedMatrix): DistributedMatrix
   def -(other: DistributedMatrix): DistributedMatrix = {
     this + (other * -1)
@@ -116,10 +116,10 @@ abstract class DistributedMatrix(
   // def *(other: DenseMatrix[Double]): DistributedMatrix
   // def *(other: DistributedMatrix): DistributedMatrix
 
-  // Back-slash for solve. Default uses QR 
+  // Back-slash for solve. Default uses QR
   // def \(other: DistributedMatrix)
 
-  // 
+  //
   // Linear Algebra functions
   //
   // Return the frobenius-norm of the matrix
@@ -139,10 +139,10 @@ abstract class DistributedMatrix(
   // qrR(): DistributedMatrix
   // svd(): (DistributedMatrix, DistributedMatrix, DistributedMatrix)
 
-  // 
+  //
   // RDD-like functions
   //
   def cache(): DistributedMatrix
-  def collect(): DenseMatrix[Double] 
+  def collect(): DenseMatrix[Double]
   // def save(path: String)
 }

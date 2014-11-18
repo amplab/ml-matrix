@@ -34,7 +34,7 @@ class BlockCoordinateDescentSuite extends FunSuite with LocalSparkContext {
 
     val localXFull = localFullA \ localb
 
-    val xs = BlockCoordinateDescent.solveLeastSquaresWithL2(aParts, b, Array(0.0), 10,
+    val xs = new BlockCoordinateDescent().solveLeastSquaresWithL2(aParts, b, Array(0.0), 10,
       new NormalEquations()).map(x => x.head)
 
     val xFull = xs.reduceLeft(vertCatReduce)
@@ -66,7 +66,7 @@ class BlockCoordinateDescentSuite extends FunSuite with LocalSparkContext {
 
     val localXFull = localFullA \ localb
 
-    val xs = BlockCoordinateDescent.solveLeastSquaresWithL2(aParts, b, Array(0.0), 10,
+    val xs = new BlockCoordinateDescent().solveLeastSquaresWithL2(aParts, b, Array(0.0), 10,
       new TSQR()).map(x => x.head)
 
     val xFull = xs.reduceLeft(vertCatReduce)
@@ -95,7 +95,7 @@ class BlockCoordinateDescentSuite extends FunSuite with LocalSparkContext {
     val localAs: Seq[DenseMatrix[Double]] = aParts.map(p => p.collect())
     val localb = b.collect()
 
-    val xsIter = BlockCoordinateDescent.solveOnePassL2(aParts.iterator, b, Array(0.0),
+    val xsIter = new BlockCoordinateDescent().solveOnePassL2(aParts.iterator, b, Array(0.0),
       new NormalEquations()).map(x => x.head)
 
     var curResidual = new DenseMatrix[Double](4096, 1)

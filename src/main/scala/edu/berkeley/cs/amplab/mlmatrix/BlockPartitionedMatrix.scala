@@ -1,7 +1,7 @@
 package edu.berkeley.cs.amplab.mlmatrix
 
-import scala.reflect.ClassTag
 import scala.collection.mutable.ArrayBuffer
+import scala.reflect.ClassTag
 
 import breeze.linalg._
 
@@ -35,7 +35,7 @@ class BlockPartitionedMatrix(
 
   override def getDim = {
     val bi = getBlockInfo
-  
+
     val xDim = bi.map { x =>
       (x._1._1, x._2.numRows.toLong)
     }.groupBy(x => x._1).values.map { x =>
@@ -303,9 +303,9 @@ class BlockPartitionedMatrix(
     parts.foreach { part =>
       val blockInfo = blockInfos((part._1._1, part._1._2))
       // Figure out where this part should be put
-      val rowRange = 
+      val rowRange =
         blockInfo.startRow.toInt until (blockInfo.startRow + blockInfo.numRows).toInt
-      val colRange = 
+      val colRange =
         blockInfo.startCol.toInt until (blockInfo.startCol + blockInfo.numCols).toInt
       mat(rowRange, colRange) := part._2
     }
