@@ -8,7 +8,7 @@ import com.github.fommil.netlib.LAPACK.{getInstance=>lapack}
 object QRUtils {
 
   /**
-   * Compute a QR decomposition. 
+   * Compute a QR decomposition.
    * @returns Y, the householder reflectors
    * @returns T, the scalar factors
    * @returns R, upper triangular
@@ -53,7 +53,7 @@ object QRUtils {
       }
       r = r + 1
     }
-    
+
     (outputMat, tau, R)
   }
 
@@ -63,6 +63,7 @@ object QRUtils {
   def qrR(A: DenseMatrix[Double], cloneMatrix: Boolean = true) = {
     qrYTR(A, cloneMatrix)._3
   }
+
 
   /**
    * Compute a reduced or thin QR factorization
@@ -128,7 +129,7 @@ object QRUtils {
         r
       }
 
-    val work = new Array[Double](1) 
+    val work = new Array[Double](1)
     val info = new intW(0)
     val trans = if (transpose) "T" else "N"
 
