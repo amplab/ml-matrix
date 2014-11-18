@@ -37,6 +37,16 @@ case class LinearSystem(
 
 object LinearSystem {
 
+  /**
+    * Create several linear systems with varying condition numbers and thetas, where
+    * theta is the angle between the vector b and the range of A. We create a
+    * matrix A with a specific condition number by first setting the entries of a
+    * diagonal matrix to be the desired singular values of A, and then hitting this
+    * diagonal matrix with orthogonal matrices U and V on the left and right respectively.
+    * When we create the matrix U, we create a matrix with one additional column, called qe.
+    * The vector qe is then orthogonal to the range of A and we can use qe to create a
+    * vector b at the specified angle theta away from the range of A. 
+    */
   def createLinearSystems(
     sc: SparkContext,
     numRows: Int,

@@ -2,13 +2,6 @@ package edu.berkeley.cs.amplab.mlmatrix
 
 import breeze.linalg._
 
-import edu.berkeley.cs.amplab.mlmatrix.util.QRUtils
-import edu.berkeley.cs.amplab.mlmatrix.util.Utils
-
-import org.apache.spark.SparkConf
-import org.apache.spark.SparkContext
-import org.apache.spark.SparkContext._
-
 class BlockCoordinateDescent(colBlockSize: Int, numEpochs: Int) extends Logging with Serializable {
 
   def solveOnePassL2(

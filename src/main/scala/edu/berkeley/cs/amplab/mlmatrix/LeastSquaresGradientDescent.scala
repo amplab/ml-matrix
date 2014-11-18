@@ -18,8 +18,8 @@ import org.apache.spark.mllib.regression.RidgeRegressionWithSGD
 import org.apache.spark.mllib.regression.LabeledPoint
 
  /**
-  *Solves for x in formula Ax=b by minimizing the least squares loss function
-  *using stochastic gradient descent
+  * Solves for x in formula Ax=b by minimizing the least squares loss function
+  * using stochastic gradient descent
   */
 class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
   miniBatchFraction: Double) extends RowPartitionedSolver with Logging with Serializable {
