@@ -195,8 +195,14 @@ class RowPartitionedMatrix(
      new TSQR().qrR(this)
   }
 
-  def condEst(R: DenseMatrix[Double]): Double = {
-    //val R = this.qrR()
+  // Estimate the condition number of the matrix
+  // Optionally pass in a R that correspondings to the R matrix obtained
+  // by a QR decomposition
+  def condEst(rOpt: Option[DenseMatrix[Double]] = None): Double = {
+    val R = rOpt match {
+      case None => qrR()
+      case Some(rMat) => rMat
+    }
     val n = R.rows
     val work = new Array[Double](3*n)
     val iwork = new Array[Int](n)

@@ -15,25 +15,26 @@ case class LinearSystem(
   b: RowPartitionedMatrix,
   xCorrect: DenseMatrix[Double],
   condNumber: Double,
-  theta: Double) {
+  theta: Double) extends Logging {
 
-    // val ALocal = A.collect()
-    // val bLocal = b.collect()
-    def computeResidualNorm(xComputed: DenseMatrix[Double]) = {
-      val xBroadcast = A.rdd.context.broadcast(xComputed)
-      val axComputed = A.mapPartitions { part =>
-        part*xBroadcast.value
-      }
-      val residualNorm = norm((b.collect() - axComputed.collect()).toDenseVector)
-      println("Theta: " + theta + " condNumber " + condNumber + " 2-norm of residual is " + residualNorm)
-      residualNorm
+  def computeResidualNorm(xComputed: DenseMatrix[Double]) = {
+    val xBroadcast = A.rdd.context.broadcast(xComputed)
+    val axComputed = A.mapPartitions { part =>
+      part*xBroadcast.value
     }
-    def computeRelativeError(xComputed: DenseMatrix[Double]) = {
-      val relativeError = norm((xComputed - xCorrect).toDenseVector)/norm(xCorrect.toDenseVector)
-      println("Theta: " + theta + " condNumber: " + condNumber + " relative error is " + relativeError)
-      relativeError
-    }
+    val residualNorm = (b - axComputed).normFrobenius()
+    logInfo("Theta: " + theta + " condNumber " + condNumber + " 2-norm of residual is " +
+      residualNorm)
+    residualNorm
   }
+
+  def computeRelativeError(xComputed: DenseMatrix[Double]) = {
+    val relativeError = norm((xComputed - xCorrect).toDenseVector)/norm(xCorrect.toDenseVector)
+    logInfo("Theta: " + theta + " condNumber: " + condNumber + " relative error is " +
+      relativeError)
+    relativeError
+  }
+}
 
 object LinearSystem {
 
@@ -71,8 +72,6 @@ object LinearSystem {
         (0 until numCols).foreach { c =>
           diag(c, c) = math.pow(condNumber, -1.0 * c.toDouble/numCols)
         }
-        // println("Inputted condition number is " + condNumber)
-        // println("Ratio of singular values is " + diag(0,0) / diag(numCols-1, numCols-1))
 
         // Multiply diagonal matrix with entries diag by V
         val SigmaV = diag*V
@@ -94,11 +93,10 @@ object LinearSystem {
         val xBroadcast = sc.broadcast(x)
 
         val bCorrect = A.mapPartitions(part => part*xBroadcast.value)
-        val lengthBCorrect = norm(bCorrect.collect().toDenseVector)
+        val lengthBCorrect = bCorrect.normFrobenius()
 
         // Add component that is orthogonal to the column space of A
         val b = bCorrect*Math.cos(theta) + qe*Math.sin(theta)*lengthBCorrect
-        // println("Eta is " + norm(A)*norm(x)/norm(bCorrect))
 
         LinearSystem(A, b.asInstanceOf[RowPartitionedMatrix], x, condNumber, theta)
       }

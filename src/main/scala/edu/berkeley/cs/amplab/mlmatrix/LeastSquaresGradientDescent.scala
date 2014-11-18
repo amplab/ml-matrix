@@ -27,7 +27,7 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
   override def solveLeastSquares(A: RowPartitionedMatrix, b: RowPartitionedMatrix):
     DenseMatrix[Double] = {
 
-    if(b.getDim()._2 != 1) {
+    if(b.numCols() != 1) {
       throw new SparkException(
         "Multiple right hand sides are not supported")
     }
@@ -43,7 +43,7 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
 
     // Train(RDD[LabeledPoint], numIterations, stepSize, miniBatchFraction)
     val model = LinearRegressionWithSGD.train(data, numIterations, stepSize, miniBatchFraction)
-    DenseMatrix(model.weights.toArray)
+    new DenseMatrix(A.numCols().toInt, b.numCols().toInt, model.weights.toArray)
   }
 
   def solveLeastSquaresWithManyL2(
@@ -51,7 +51,7 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
       b: RowPartitionedMatrix,
       lambdas: Array[Double]): Seq[DenseMatrix[Double]] = {
 
-    if(b.getDim()._2 != 1) {
+    if(b.numCols() != 1) {
       throw new SparkException(
         "Multiple right hand sides are not supported")
     }
@@ -68,7 +68,7 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
 
       val model = RidgeRegressionWithSGD.train(data, numIterations, stepSize,
         lambda, miniBatchFraction)
-      DenseMatrix(model.weights.toArray)
+      new DenseMatrix(A.numCols().toInt, b.numCols().toInt, model.weights.toArray)
     }
   }
 
@@ -106,7 +106,8 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
 
       val model = RidgeRegressionWithSGD.train(data, numIterations, stepSize,
         lambda, miniBatchFraction)
-        DenseMatrix(model.weights.toArray)
+      new DenseMatrix(A.numCols().toInt, model.weights.size / A.numCols().toInt,
+        model.weights.toArray)
     }
   }
 }
