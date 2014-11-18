@@ -80,8 +80,6 @@ class BlockCoordinateDescent(colBlockSize: Int, numEpochs: Int) extends Logging 
     }
   }
 
-
-
   def solveLeastSquaresWithL2(
     aParts: Seq[RowPartitionedMatrix],
     b: RowPartitionedMatrix,

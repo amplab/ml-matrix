@@ -48,7 +48,7 @@ object StabilityChecker extends Logging {
   def main(args: Array[String]) {
     if (args.length < 8) {
       println("Usage: StabilityChecker <master> <sparkHome> <numRows> <numCols> <numParts> " +
-        "<numClasses> <solver: tsqr|normal|sgd|local> <stepsize> <numIters>")
+        "<numClasses> <solver: tsqr|normal|sgd|local> <stepsize> <numIters> <miniBatchFraction>")
       System.exit(0)
     }
 
@@ -63,6 +63,7 @@ object StabilityChecker extends Logging {
     val coresPerTask = 1
     val stepSize = args(7).toDouble
     val numIterations = args(8).toInt
+    val miniBatchFraction = args(9).toInt
 
     val sc = new SparkContext(sparkMaster, "NormalEquations", sparkHome,
       SparkContext.jarOfClass(this.getClass).toSeq)
@@ -90,7 +91,7 @@ object StabilityChecker extends Logging {
         case "normal" =>
           new NormalEquations().solveLeastSquares(ls.A, ls.b)
         case "sgd" =>
-          new LeastSquaresGradientDescent(numIterations, stepSize).solveLeastSquares(ls.A, ls.b)
+          new LeastSquaresGradientDescent(numIterations, stepSize, 1.0).solveLeastSquares(ls.A, ls.b)
         case "tsqr" =>
           new TSQR().solveLeastSquares(ls.A, ls.b)
         case "local" =>

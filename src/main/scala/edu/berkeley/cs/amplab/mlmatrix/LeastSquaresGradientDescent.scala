@@ -20,7 +20,8 @@ import edu.berkeley.cs.amplab.mlmatrix.util.Utils
 /*Solves for x in formula Ax=b by minimizing the least squares loss function
  *using stochastic gradient descent*/
 
-class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double) extends RowPartitionedSolver with Logging with Serializable {
+class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
+  miniBatchFraction: Double) extends RowPartitionedSolver with Logging with Serializable {
 
   override def solveLeastSquares(A: RowPartitionedMatrix, b: RowPartitionedMatrix):
     DenseMatrix[Double] = {
@@ -52,7 +53,7 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double) extends 
     }
 
     // Train(RDD[LabeledPoint], numIterations, stepSize, miniBatchFraction)
-    val model = LinearRegressionWithSGD.train(data, numIterations, stepSize, 1.0)
+    val model = LinearRegressionWithSGD.train(data, numIterations, stepSize, miniBatchFraction)
     DenseMatrix(model.weights.toArray)
   }
 
@@ -66,15 +67,6 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double) extends 
         "Multiple right hand sides are not supported")
     }
 
-    /*
-    val data = A.rdd.zip(b.rdd).flatMap{ x =>
-      var features = x._1.mat.toArray2().map(row => Vectors.dense(row))
-      val labels = x._2.mat.toArray2().map(row => row(0))
-      features.zip(labels).map(x => LabeledPoint(x._2, x._1))
-    }
-    */
-
-
     lambdas.map{ lambda =>
       val data = A.rdd.zip(b.rdd).flatMap{ x =>
         val feature_rows = x._1.mat.data.grouped(x._1.mat.rows).toSeq.transpose
@@ -85,7 +77,8 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double) extends 
         features.zip(labels).map(x => LabeledPoint(x._2, x._1))
       }
 
-      val model = RidgeRegressionWithSGD.train(data, numIterations, stepSize, lambda, 1.0)
+      val model = RidgeRegressionWithSGD.train(data, numIterations, stepSize,
+        lambda, miniBatchFraction)
       DenseMatrix(model.weights.toArray)
     }
   }
@@ -107,10 +100,16 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double) extends 
     val lambdaWithIndex = lambdas.zipWithIndex
 
     lambdaWithIndex.map{ lambdaI =>
+      //b is an RDD
       val lambda = lambdaI._1
-      val index = lambdaI._2
+      val bIndex = lambdaI._2
+
       val data = A.rdd.zip(b).flatMap{ x =>
-        val bVector = x._2(index)
+        //index into b.rdd ( Sequence of DenseMatrices with the same
+        //index given by lambdas
+
+        val bVector = x._2(bIndex)
+
         val feature_rows = x._1.mat.data.grouped(x._1.mat.rows).toSeq.transpose
         var features = feature_rows.map(row => Vectors.dense(row.toArray))
         val label_rows = bVector.data.grouped(bVector.rows).toSeq.transpose
@@ -119,8 +118,9 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double) extends 
         features.zip(labels).map(x => LabeledPoint(x._2, x._1))
       }
 
-      val model = RidgeRegressionWithSGD.train(data, numIterations, stepSize, lambda, 1.0)
-      DenseMatrix(model.weights.toArray)
+      val model = RidgeRegressionWithSGD.train(data, numIterations, stepSize,
+        lambda, miniBatchFraction)
+        DenseMatrix(model.weights.toArray)
     }
   }
 }
@@ -158,37 +158,14 @@ object LeastSquaresGradientDescent extends Logging {
       SparkContext.jarOfClass(this.getClass).toSeq)
       sc.setLocalProperty("spark.task.cpus", coresPerTask.toString)
 
-    //val lss = LinearSystem.createLinearSystems(sc, numRows, numCols, numClasses,
-    //  numParts, Seq(1.0), Seq(0.0))
-    // val A = lss(0).A
-    // val b = lss(0).b
 
     val A = RowPartitionedMatrix.createRandom(sc, numRows, numCols, numParts)
     val b =  A.mapPartitions(
       part => DenseMatrix.rand(part.rows, numClasses)).cache()
-    // val b = A.mapPartitions { part =>
-    //   val vec = new DoubleMatrix(2, 1, Array(5.0, 3.0):_*)
-    //   part.mmul(vec)
-    // }.cache()
-
-    // val Ab = StabilityChecker.createVandermondeMatrix(sc, numRows, numCols, numParts)
-    // val A = Ab._1
-    // val b = Ab._2
-
-    // val localA = A.collect()
-    // val localB = b.collect()
-    // val localX = Solve.solveLeastSquares(localA, localB)
-    // val svds = Singular.SVDValues(localA)
-    // val conditionNumber = svds.data.max / svds.data.min
 
     var begin = System.nanoTime()
-    val x = new LeastSquaresGradientDescent(numIterations, stepSize).solveLeastSquares(A, b)
+    val x = new LeastSquaresGradientDescent(numIterations, stepSize, 1.0).solveLeastSquares(A, b)
     var end = System.nanoTime()
-
-    //println("For " + numRows + " " + localA.columns + " err " +
-    //        StabilityChecker.computeRelativeError(x, localX) + " " + conditionNumber)
-    //println("x " + x)
-    //println("localX " + localX)
 
     logInfo("Linear solver of " + numRows + "x" + numCols + " took " + (end - begin)/1e6 + "ms")
   }
