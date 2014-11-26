@@ -29,7 +29,7 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
         r
       }
     }
-    val depth = (math.log(mat.rdd.partitions.size)/math.log(2)).toInt
+    val depth = math.ceil(math.log(mat.rdd.partitions.size)/math.log(2)).toInt
     Utils.treeReduce(qrTree, reduceQR(localQR, _ : DenseMatrix[Double], _ : DenseMatrix[Double]), depth=depth)
   }
 
@@ -176,7 +176,7 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
       }
     }
 
-    val depth = (math.log(A.rdd.partitions.size)/math.log(2)).toInt
+    val depth = math.ceil(math.log(A.rdd.partitions.size)/math.log(2)).toInt
     val qrResult = Utils.treeReduce(qrTree, reduceQRSolve, depth=depth)
 
     val results = lambdas.map { lambda =>
@@ -222,7 +222,7 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     }
 
     val qrResult = Utils.treeReduce(qrTree, reduceQRSolveMany, 
-      depth=(math.log(A.rdd.partitions.size)/math.log(2)).toInt)
+      depth=math.ceil(math.log(A.rdd.partitions.size)/math.log(2)).toInt)
     val rFinal = qrResult._1
 
     val results = lambdas.zip(qrResult._2).map { case (lambda, bFinal) =>
@@ -290,6 +290,7 @@ object TSQR extends Logging {
     var end = System.nanoTime()
     logInfo("Random TSQR of " + numRows + "x" + numCols + " took " + (end - begin)/1e6 + "ms")
 
+    var c = readChar
     sc.stop()
   }
 
