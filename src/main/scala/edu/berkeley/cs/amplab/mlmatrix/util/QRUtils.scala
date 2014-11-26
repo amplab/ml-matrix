@@ -149,7 +149,8 @@ object QRUtils {
 
     // Select only the first N rows if we multiplied by t(Q)
     if (transpose) {
-      result(0 until Y.cols, ::)
+      val rowsToSelect = min(Y.cols, result.rows)
+      result(0 until rowsToSelect, ::)
     } else {
       result
     }
