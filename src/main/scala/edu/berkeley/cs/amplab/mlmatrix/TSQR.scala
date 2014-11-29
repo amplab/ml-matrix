@@ -185,7 +185,7 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
       val out = if (lambda == 0.0) {
         rFinal \ bFinal
       } else {
-        val lambdaRB = (DenseMatrix.eye[Double](rFinal.cols) :* lambda,
+        val lambdaRB = (DenseMatrix.eye[Double](rFinal.cols) :* math.sqrt(lambda),
           new DenseMatrix[Double](rFinal.cols, bFinal.cols))
         val reduced = reduceQRSolve((rFinal, bFinal), lambdaRB)
         reduced._1 \ reduced._2
@@ -230,7 +230,7 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
       val out = if (lambda == 0.0) {
         rFinal \ bFinal
       } else {
-        val lambdaRB = (DenseMatrix.eye[Double](rFinal.cols) :* lambda,
+        val lambdaRB = (DenseMatrix.eye[Double](rFinal.cols) :* math.sqrt(lambda),
           new DenseMatrix[Double](rFinal.cols, bFinal.cols))
         val reduced = reduceQRSolve((rFinal, bFinal), lambdaRB)
         reduced._1 \ reduced._2
