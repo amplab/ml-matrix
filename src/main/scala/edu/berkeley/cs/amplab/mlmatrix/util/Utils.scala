@@ -1,6 +1,7 @@
 package edu.berkeley.cs.amplab.mlmatrix.util
 
 import scala.reflect.ClassTag
+import scala.util.Random
 
 import org.apache.spark.SparkContext._
 import org.apache.spark.HashPartitioner
@@ -103,5 +104,31 @@ object Utils {
 
   def aboutEq(a: DenseMatrix[Double], b: DenseMatrix[Double], thresh: Double = 1e-8) = {
     math.abs(max(a-b)) < thresh
+  }
+
+
+  // Requires that all input RDDs have same number of records per partition
+  // and same number of partitions
+  def coalesceRDDs(numPartitions: Int, rdds: RDD[_]*) = {
+    assert(rdds.length > 0)
+    // First get a random RDD of indices
+    val firstRDD = rdds(0)
+    val distributePartition = (index: Int, items: Iterator[_]) => {
+      var position = (new Random(index)).nextInt(numPartitions)
+      items.map { t =>
+        // Note that the hash code of the key will just be the key itself. The HashPartitioner
+        // will mod it with the number of total partitions.
+        position = position + 1
+        position
+      }
+    } : Iterator[Int]
+   
+    val randomIndices = firstRDD.mapPartitionsWithIndex(distributePartition)
+    val partitioner = new HashPartitioner(numPartitions)
+    // Now partition each RDD by zipping with same random index
+    val repartitionedRDDs = rdds.map { rdd =>
+      randomIndices.zip(rdd).partitionBy(partitioner).values
+    }
+    repartitionedRDDs  
   }
 }
