@@ -5,6 +5,7 @@ import scala.util.Random
 
 import org.apache.spark.SparkContext._
 import org.apache.spark.HashPartitioner
+import org.apache.spark.Partitioner
 import org.apache.spark.rdd.RDD
 
 import breeze.linalg._
@@ -106,13 +107,13 @@ object Utils {
     math.abs(max(a-b)) < thresh
   }
 
-
-  // Requires that all input RDDs have same number of records per partition
-  // and same number of partitions
-  def coalesceRDDs(numPartitions: Int, rdds: RDD[_]*) = {
-    assert(rdds.length > 0)
-    // First get a random RDD of indices
-    val firstRDD = rdds(0)
+  // Creates a coalescer that can be used on RDDs which have same number of partitions
+  // and same number of rows per partition.
+  // This is useful as many RDDs can be coalesced in a similar fashion.
+  def createCoalescer[T: ClassTag](firstRDD: RDD[T], numPartitions: Int) = {
+    // assert(rdds.length > 0)
+    // // First get a random RDD of indices
+    // val firstRDD = rdds(0)
     val distributePartition = (index: Int, items: Iterator[_]) => {
       var position = (new Random(index)).nextInt(numPartitions)
       items.map { t =>
@@ -122,13 +123,18 @@ object Utils {
         position
       }
     } : Iterator[Int]
-   
+
     val randomIndices = firstRDD.mapPartitionsWithIndex(distributePartition)
     val partitioner = new HashPartitioner(numPartitions)
-    // Now partition each RDD by zipping with same random index
-    val repartitionedRDDs = rdds.map { rdd =>
+
+    val coalescer = new Coalescer(randomIndices, partitioner)
+    coalescer
+  }
+
+  class Coalescer(randomIndices: RDD[Int], partitioner: Partitioner) {
+    def apply[T: ClassTag](rdd: RDD[T]) = {
       randomIndices.zip(rdd).partitionBy(partitioner).values
     }
-    repartitionedRDDs  
   }
+
 }
