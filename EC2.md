@@ -6,7 +6,10 @@ repository.
 3. Run `cd matrix-bench; bash setup-ec2.sh` and wait for OpenBLAS to build.
 4. After OpenBLAS build completes, copy `/root/openblas-install` to all the machines with
 `/root/spark-ec2/copy-dir /root/openblas-install`
-5. Clone and build ml-matrix. `git clone https://github.com/amplab/ml-matrix.git; sbt/sbt clean assembly`
+5. Clone and build ml-matrix. `git clone https://github.com/amplab/ml-matrix.git; cd ml-matrix; sbt/sbt clean assembly`
+   After the build finishes, copy ml-matrix to all the slaves with `/root/spark-ec2/copy-dir /root/ml-matrix`.
+   NOTE: This is required for the extraClassPath setup we have below
+
 6. Configure the BLAS using instructions below
 
 ### Native BLAS / LAPACK for netlib, using spark-submit
