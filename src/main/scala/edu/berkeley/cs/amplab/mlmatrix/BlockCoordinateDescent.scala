@@ -75,7 +75,9 @@ class BlockCoordinateDescent extends Logging with Serializable {
     b: RowPartitionedMatrix,
     lambdas: Array[Double],
     numIters: Int,
-    solver: RowPartitionedSolver): Seq[Seq[DenseMatrix[Double]]]  = {
+    solver: RowPartitionedSolver,
+    intermediateCallback: Option[(Seq[DenseMatrix[Double]], Int) => Unit] = None, // Called after each column block 
+    checkpointIntermediate: Boolean = false): Seq[Seq[DenseMatrix[Double]]]  = {
 
     val numColBlocks = aParts.length
     val numColsb = b.numCols()
@@ -139,6 +141,10 @@ class BlockCoordinateDescent extends Logging with Serializable {
           }
         }.cache()
 
+        if (checkpointIntermediate) {
+          newOutput.checkpoint()
+        }
+
         // Materialize this output and remove the older output
         newOutput.count()
         output.unpersist()
@@ -149,6 +155,11 @@ class BlockCoordinateDescent extends Logging with Serializable {
 
         // Set the newX
         xs(p) = newXjs
+
+        // Call the intermediate callback if we have one
+        intermediateCallback.foreach { fn =>
+          fn(xs(p), p)
+        }
       }
     }
     xs
