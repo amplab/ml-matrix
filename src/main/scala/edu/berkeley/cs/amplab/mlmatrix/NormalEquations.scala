@@ -30,7 +30,8 @@ class NormalEquations extends RowPartitionedSolver with Logging with Serializabl
       (AtA, AtBs)
     }
 
-    val depth = math.ceil(math.log(ATA_ATb.partitions.size)/math.log(2)).toInt
+    val treeBranchingFactor = A.rdd.context.getConf.getInt("spark.mlmatrix.treeBranchingFactor", 2).toInt
+    val depth = math.ceil(math.log(ATA_ATb.partitions.size)/math.log(treeBranchingFactor)).toInt
     val reduced = Utils.treeReduce(ATA_ATb, reduceNormalMany, depth=depth)
 
     val ATA = reduced._1
@@ -65,7 +66,8 @@ class NormalEquations extends RowPartitionedSolver with Logging with Serializabl
       (part._1.t * part._1, part._1.t * part._2)
     }
 
-    val depth = math.ceil(math.log(ATA_ATb.partitions.size)/math.log(2)).toInt
+    val treeBranchingFactor = A.rdd.context.getConf.getInt("spark.mlmatrix.treeBranchingFactor", 2).toInt
+    val depth = math.ceil(math.log(ATA_ATb.partitions.size)/math.log(treeBranchingFactor)).toInt
     val reduced = Utils.treeReduce(ATA_ATb, reduceNormal, depth=depth)
 
     val xs = lambdas.map { l =>

@@ -4,6 +4,7 @@ import scala.reflect.ClassTag
 import scala.util.Random
 
 import org.apache.spark.SparkContext._
+import org.apache.spark.SparkEnv
 import org.apache.spark.HashPartitioner
 import org.apache.spark.Partitioner
 import org.apache.spark.rdd.RDD
@@ -92,6 +93,18 @@ object Utils {
     var partiallyAggregated = rdd.mapPartitions(it => Iterator(aggregatePartition(it)))
     var numPartitions = partiallyAggregated.partitions.size
     val scale = math.max(math.ceil(math.pow(numPartitions, 1.0 / depth)).toInt, 2)
+
+    if (rdd.context.getConf.getBoolean("spark.mlmatrix.treeExecutorAgg", false)) {
+      // Do one level of aggregation based on executorId before starting the tree
+      // NOTE: exclude the driver from list of executors
+      val numExecutors = math.max(rdd.context.getExecutorStorageStatus.length - 1, 1)
+      partiallyAggregated = partiallyAggregated.mapPartitionsWithIndex { case (idx, iter) =>
+        val execId = SparkEnv.get.executorId.hashCode
+        iter.map((execId, _))
+      }.reduceByKey(new HashPartitioner(numExecutors), combOp).values
+      numPartitions = partiallyAggregated.partitions.size
+    }
+
     // If creating an extra level doesn't help reduce the wall-clock time, we stop tree aggregation.
     while (numPartitions > 1) { // while (numPartitions > scale + numPartitions / scale) {
       numPartitions /= scale
