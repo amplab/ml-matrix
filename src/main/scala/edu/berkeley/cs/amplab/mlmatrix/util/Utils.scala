@@ -98,8 +98,13 @@ object Utils {
       // NOTE: exclude the driver from list of executors
       val numExecutors = math.max(rdd.context.getExecutorStorageStatus.length - 1, 1)
       partiallyAggregated = partiallyAggregated.mapPartitionsWithIndex { case (idx, iter) =>
-        val execId = SparkEnv.get.executorId.hashCode
-        iter.map((execId, _))
+        def isAllDigits(x: String) = x forall Character.isDigit
+        val execId = SparkEnv.get.executorId
+        if (isAllDigits(execId)) {
+          iter.map((execId.toInt, _))
+        } else {
+          iter.map((execId.hashCode, _))
+        }
       }.reduceByKey(new HashPartitioner(numExecutors), combOp).values
       numPartitions = numExecutors
     }
