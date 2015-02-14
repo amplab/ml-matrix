@@ -48,7 +48,7 @@ class BlockCoordinateDescent extends Logging with Serializable {
           var i = 0
           while (i < xs.length) {
             val newAx = part._1.mat * xs(i)
-            part._2(i) += newAx
+            part._2(i) :+= newAx
             i = i + 1
           }
           part._2
