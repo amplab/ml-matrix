@@ -108,10 +108,14 @@ class TSQRSuite extends FunSuite with LocalSparkContext {
 
     for (i <- 0 until lambdas.length) {
       val x = xs(i)
-      val reg = DenseMatrix.eye[Double](16) :* lambdas(i)
-      val localX = (localA.t * localA + reg) \ (localA.t * localB)
+      val reg = DenseMatrix.eye[Double](16) :* math.sqrt(lambdas(i))
+      val toSolve = DenseMatrix.vertcat(localA, reg)
+      val localQR = qr(toSolve)
+      val localX = localQR.r \ (localQR.q.t * DenseMatrix.vertcat(localB,
+        DenseMatrix.zeros[Double](16, 1)))
       assert(Utils.aboutEq(x, localX))
     }
   }
+
 
 }
