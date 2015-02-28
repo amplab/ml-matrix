@@ -187,8 +187,25 @@ class RowPartitionedMatrix(
   // TODO: This is terribly inefficient if we have more partitions.
   // Make this more efficient
   override def collect(): DenseMatrix[Double] = {
+    require(numRows() * numCols() <= Integer.MAX_VALUE,
+      "Cannot collect matrix of size " + numRows() + " " + numCols() + " to a local array")
+
     val parts = rdd.map(x => x.mat).collect()
-    parts.reduceLeftOption((a,b) => DenseMatrix.vertcat(a, b)).getOrElse(new DenseMatrix[Double](0, 0))
+    val fullMat = new Array[Double]( (numRows() * numCols()).toInt )
+
+    // Fill in row at a time but in column major order
+    var row = 0
+    parts.foreach { part =>
+      (0 until part.rows).foreach { r =>
+        (0 until part.cols).foreach { c =>
+          val idx = c * numRows().toInt + row
+          fullMat(idx) = part(r, c)
+        }
+        row = row + 1
+      }
+    }
+    new DenseMatrix[Double](numRows().toInt, numCols().toInt, fullMat)
+    // parts.reduceLeftOption((a,b) => DenseMatrix.vertcat(a, b)).getOrElse(new DenseMatrix[Double](0, 0))
   }
 
   def qrR(): DenseMatrix[Double] = {

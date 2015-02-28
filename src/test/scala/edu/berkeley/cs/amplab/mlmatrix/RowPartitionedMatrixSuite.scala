@@ -1,6 +1,9 @@
 package edu.berkeley.cs.amplab.mlmatrix
 
 import org.scalatest.FunSuite
+
+import breeze.linalg._
+
 import org.apache.spark.SparkContext
 
 class RowPartitionedMatrixSuite extends FunSuite with LocalSparkContext with Logging {
@@ -82,6 +85,17 @@ class RowPartitionedMatrixSuite extends FunSuite with LocalSparkContext with Log
     assert(testMat(Range(2, 3), Range(1, 3)).collect().toArray === Array(1618, 1))
 
     assert(testMat(Range(2, 2), Range(1, 3)).collect().toArray.isEmpty)
+  }
+
+  test("collect") {
+    sc = new SparkContext("local", "test")
+    val matrixParts = (0 until 200).map { i =>
+      DenseMatrix.rand(50, 10)
+    }
+    val r = RowPartitionedMatrix.fromMatrix(sc.parallelize(matrixParts, 200))
+    val rL = matrixParts.reduceLeftOption((a, b) => DenseMatrix.vertcat(a, b)).getOrElse(new DenseMatrix[Double](0, 0))
+    val rD = r.collect()
+    assert(rL == rD)
   }
 
 }
