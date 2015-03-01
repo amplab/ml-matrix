@@ -28,6 +28,8 @@ After each executor receives a built OpenBlas install, do these:
 
 Also we need to update the BLAS, LAPACK on the master node. To do that run 
 ```
+rm /etc/ld.so.conf.d/atlas-x86_64.conf
+ldconfig
 ln -sf /root/openblas-install/lib/libblas.so.3 /usr/lib64/liblapack.so.3
 ln -sf /root/openblas-install/lib/libblas.so.3 /usr/lib64/libblas.so.3
 ```
