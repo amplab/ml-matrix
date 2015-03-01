@@ -26,6 +26,12 @@ After each executor receives a built OpenBlas install, do these:
 ~/spark/sbin/slaves.sh ln -sf /root/openblas-install/lib/libblas.so.3 /usr/lib64/libblas.so.3
 ```
 
+Also we need to update the BLAS, LAPACK on the master node. To do that run 
+```
+ln -sf /root/openblas-install/lib/libblas.so.3 /usr/lib64/liblapack.so.3
+ln -sf /root/openblas-install/lib/libblas.so.3 /usr/lib64/libblas.so.3
+```
+
 Before running an application, `copy-dir` the application jar, and make sure the application jar is
 prepended to `spark.executor.extraClassPath` in `conf/spark-defaults.conf`:
 
