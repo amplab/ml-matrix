@@ -164,7 +164,7 @@ object QRUtils {
     (rPart, x)
   }
 
-  def qrSolveMany(A: DenseMatrix[Double], bs: Seq[DenseMatrix[Double]]) = {
+  def qrSolveMany(A: DenseMatrix[Double], bs: Array[DenseMatrix[Double]]) = {
     val (yPart, tau, rPart) = qrYTR(A)
     val xs = bs.map { b =>
       applyQ(yPart, tau, b, transpose=true)

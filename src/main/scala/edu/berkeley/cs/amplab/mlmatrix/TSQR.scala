@@ -204,20 +204,25 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
 
   def solveManyLeastSquaresWithL2(
       A: RowPartitionedMatrix,
-      b: RDD[Seq[DenseMatrix[Double]]],
+      b: RowPartitionedMatrix,
+      residuals: RDD[Array[DenseMatrix[Double]]],
       lambdas: Array[Double]): Seq[DenseMatrix[Double]] = {
 
-    val matrixParts = A.rdd.zip(b).map { x =>
-      (x._1.mat, x._2)
+    val matrixParts = A.rdd.zip(b.rdd).map { x =>
+      (x._1.mat, x._2.mat)
     }
 
-    val qrTree = matrixParts.map { part =>
-      val (aPart, bParts) = part
+    val qrTree = matrixParts.zip(residuals).map { part =>
+      val (aPart, bPart) = part._1
+      val res = part._2
+      val bToCompute = res.map { x =>
+        bPart - x
+      }
 
       if (aPart.rows < aPart.cols) {
-        (aPart, bParts)
+        (aPart, bToCompute)
       } else {
-        QRUtils.qrSolveMany(aPart, bParts)
+        QRUtils.qrSolveMany(aPart, bToCompute)
       }
     }
 
@@ -241,9 +246,9 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
   }
 
   private def reduceQRSolveMany(
-      a: (DenseMatrix[Double], Seq[DenseMatrix[Double]]),
-      b: (DenseMatrix[Double], Seq[DenseMatrix[Double]])):
-        (DenseMatrix[Double], Seq[DenseMatrix[Double]]) = {
+      a: (DenseMatrix[Double], Array[DenseMatrix[Double]]),
+      b: (DenseMatrix[Double], Array[DenseMatrix[Double]])):
+        (DenseMatrix[Double], Array[DenseMatrix[Double]]) = {
     QRUtils.qrSolveMany(DenseMatrix.vertcat(a._1, b._1),
       a._2.zip(b._2).map(x => DenseMatrix.vertcat(x._1, x._2)))
   }

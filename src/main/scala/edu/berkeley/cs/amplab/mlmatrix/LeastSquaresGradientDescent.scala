@@ -74,12 +74,13 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
 
   def solveManyLeastSquaresWithL2(
       A: RowPartitionedMatrix,
-      b: RDD[Seq[DenseMatrix[Double]]],
+      b: RowPartitionedMatrix,
+      residuals: RDD[Array[DenseMatrix[Double]]],
       lambdas: Array[Double]): Seq[DenseMatrix[Double]] = {
 
-    val multipleRHS = b.map { matSeq =>
-      matSeq.forall{ mat => mat.cols!=1}
-    }.reduce{ (a,b) => a & b}
+    val multipleRHS = b.rdd.map { part =>
+      part.mat.cols != 1
+    }.reduce{ (a,b) => a & b }
 
     if (multipleRHS) {
       throw new SparkException(
@@ -93,8 +94,15 @@ class LeastSquaresGradientDescent(numIterations: Int, stepSize: Double,
       val lambda = lambdaI._1
       val bIndex = lambdaI._2
 
+      val bMinusResidual = b.rdd.zip(residuals).map { part =>
+        part._2.map { x =>
+          part._1.mat - x
+        }
+      }
+
+
       // b is an RDD
-      val data = A.rdd.zip(b).flatMap { x =>
+      val data = A.rdd.zip(bMinusResidual).flatMap { x =>
         val bVector = x._2(bIndex)
         // TODO: Write a util function to convert breeze matrix to Array[Vector]
         val feature_rows = x._1.mat.data.grouped(x._1.mat.rows).toSeq.transpose

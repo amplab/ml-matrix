@@ -36,7 +36,8 @@ abstract class RowPartitionedSolver {
   // TODO: This interface should ideally take in Seq[RowPartitionedMatrix] ?
   def solveManyLeastSquaresWithL2(
       A: RowPartitionedMatrix,
-      b: RDD[Seq[DenseMatrix[Double]]],
+      b: RowPartitionedMatrix,
+      residuals: RDD[Array[DenseMatrix[Double]]],
       lambdas: Array[Double]): Seq[DenseMatrix[Double]]
 
 }

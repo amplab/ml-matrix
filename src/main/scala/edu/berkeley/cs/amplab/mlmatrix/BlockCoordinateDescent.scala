@@ -19,7 +19,7 @@ class BlockCoordinateDescent extends Logging with Serializable {
       (0 until lambdas.length).foreach { l =>
         arr(l) = new DenseMatrix[Double](nrows, ncols)
       }
-      arr.toSeq
+      arr
     }.cache()
 
     // Step 2:
@@ -31,13 +31,7 @@ class BlockCoordinateDescent extends Logging with Serializable {
         //
         // NOTE: In the one pass case, Xj is always zero.
         // So we just compute (b - output)
-        val bOutput = b.rdd.zip(output).map { part =>
-          part._2.map { out =>
-            part._1.mat - out
-          }
-        }
-
-        val newXjs = solver.solveManyLeastSquaresWithL2(aPart, bOutput, lambdas)
+        val newXjs = solver.solveManyLeastSquaresWithL2(aPart, b, output, lambdas)
 
         // Update output
         val newXBroadcast = b.rdd.context.broadcast(newXjs)
@@ -93,7 +87,7 @@ class BlockCoordinateDescent extends Logging with Serializable {
       (0 until lambdas.length).foreach { l =>
         arr(l) = new DenseMatrix[Double](nrows, ncols)
       }
-      arr.toSeq
+      arr
     }.cache()
 
     val xs = (0 until numColBlocks).map { colBlock =>
@@ -108,23 +102,30 @@ class BlockCoordinateDescent extends Logging with Serializable {
       permutation.foreach { p =>
         val aPart = aParts(p)
 
-        // Solve A \ (b - output + AjXj)
-        val AbOutput = aPart.rdd.zip(b.rdd.zip(output))
-
+        // Solve A \ (b - (output - AjXj))
         val xsBroadcast = b.rdd.context.broadcast(xs(p))
-        val updatedB = AbOutput.map { part =>
+        val blockResidual = aPart.rdd.zip(output).map { part =>
           val xsB = xsBroadcast.value
-          xsB.zip(part._2._2).map { case (xsValue, outPart) =>
-            // First compute AjXj. Then add 'b' and subtract 'output'
-            val ax = part._1.mat * (xsValue)
-            ax :+= (part._2._1.mat)
-            ax :-= (outPart)
-            ax
-          }.to[scala.collection.Seq]
+          var i = 0
+          val localRes = new Array[DenseMatrix[Double]](xsB.length)
+          while (i < xsB.length) {
+            val ax = (part._1.mat * xsB(i))
+            ax :-= part._2(i)
+            ax :*= -1.0
+            localRes(i) = ax
+            i = i + 1
+          }
+          localRes
+          // xsB.zip(part._2).map { case (xsValue, outPart) =>
+          //   // First compute AjXj. Then add 'b' and subtract 'output'
+          //   val ax = part._1.mat * (xsValue)
+          //   ax :-= (outPart)
+          //   ax
+          // }
         }
 
         // Local solve
-        val newXjs = solver.solveManyLeastSquaresWithL2(aPart, updatedB, lambdas)
+        val newXjs = solver.solveManyLeastSquaresWithL2(aPart, b, blockResidual, lambdas)
 
         // Update output
         val newXBroadcast = b.rdd.context.broadcast(newXjs)
@@ -132,13 +133,14 @@ class BlockCoordinateDescent extends Logging with Serializable {
           val xsB = xsBroadcast.value
           val newXsB = newXBroadcast.value
 
-          part._2.zip(xsB.zip(newXsB)).map { case (outPart, x) =>
-            // Subtract the oldAx and add the newAx
-            val diff = part._1.mat * (x._1)
-            val newAx = part._1.mat * (x._2)
-            diff :-= newAx
-            outPart - diff
+          var i = 0
+          while (i < xsB.length) {
+            val diff = newXsB(i) - xsB(i)
+            val newRes = part._1.mat * diff
+            part._2(i) :+= newRes
+            i = i + 1
           }
+          part._2
         }.cache()
 
         if (checkpointIntermediate) {

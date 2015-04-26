@@ -15,20 +15,40 @@ class NormalEquations extends RowPartitionedSolver with Logging with Serializabl
 
   def solveManyLeastSquaresWithL2(
       A: RowPartitionedMatrix,
-      b: RDD[Seq[DenseMatrix[Double]]],
+      b: RowPartitionedMatrix,
+      residuals: RDD[Array[DenseMatrix[Double]]],
       lambdas: Array[Double]): Seq[DenseMatrix[Double]] = {
 
-    val Abs = A.rdd.zip(b).map { x =>
-      (x._1.mat, x._2)
+    val Abs = A.rdd.zip(b.rdd).map { x =>
+      (x._1.mat, x._2.mat)
     }
 
-    val ATA_ATb = Abs.map { part =>
-      val AtA = part._1.t * part._1
-      val AtBs = part._2.map { b =>
-        part._1.t * b
+    val ATA_ATb = Abs.zip(residuals).map { part =>
+      val aPart = part._1._1
+      val bPart = part._1._2
+      val res = part._2
+
+      val AtA = aPart.t * aPart
+      val AtBs = new Array[DenseMatrix[Double]](part._2.length)
+      var i = 0
+      val tmp = new DenseMatrix[Double](bPart.rows, bPart.cols)
+      while (i < res.length) {
+        tmp :+= bPart
+        tmp :-= res(i)
+        val atb = aPart.t * tmp
+        AtBs(i) = atb
+        java.util.Arrays.fill(tmp.data, 0.0)
+        i = i + 1
       }
       (AtA, AtBs)
     }
+
+    // val ATA_ATb = Abs.map { part =>
+    //   val AtBs = part._2.map { b =>
+    //     part._1.t * b
+    //   }
+    //   (AtA, AtBs)
+    // }
 
     val treeBranchingFactor = A.rdd.context.getConf.getInt("spark.mlmatrix.treeBranchingFactor", 2).toInt
     val depth = math.ceil(math.log(ATA_ATb.partitions.size)/math.log(treeBranchingFactor)).toInt
@@ -47,12 +67,14 @@ class NormalEquations extends RowPartitionedSolver with Logging with Serializabl
   }
 
   private def reduceNormalMany(
-    a: (DenseMatrix[Double], Seq[DenseMatrix[Double]]),
-    b: (DenseMatrix[Double], Seq[DenseMatrix[Double]])):
-      (DenseMatrix[Double], Seq[DenseMatrix[Double]]) = {
+    a: (DenseMatrix[Double], Array[DenseMatrix[Double]]),
+    b: (DenseMatrix[Double], Array[DenseMatrix[Double]])):
+      (DenseMatrix[Double], Array[DenseMatrix[Double]]) = {
     a._1 :+= b._1
-    a._2.zip(b._2).map { z =>
-      z._1 :+= z._2
+    var i = 0
+    while (i < a._2.length) {
+      a._2(i) :+= b._2(i)
+      i = i + 1
     }
     a
   }
