@@ -73,6 +73,7 @@ class BlockCoordinateDescent extends Logging with Serializable {
     intermediateCallback: Option[(Seq[DenseMatrix[Double]], Int) => Unit] = None, // Called after each column block 
     checkpointIntermediate: Boolean = false): Seq[Seq[DenseMatrix[Double]]]  = {
 
+    val sc = b.rdd.context
     val numColBlocks = aParts.length
     val numColsb = b.numCols()
 
@@ -91,9 +92,9 @@ class BlockCoordinateDescent extends Logging with Serializable {
     }.cache()
 
     val xs = (0 until numColBlocks).map { colBlock =>
-      (0 until lambdas.length).map { l =>
+      (0 until lambdas.length).to[scala.collection.Seq].map { l =>
         new DenseMatrix[Double](aParts(colBlock).numCols().toInt, numColsb.toInt)
-      }.to[scala.collection.Seq]
+      }
     }.toArray
 
     (0 until numIters).foreach { iter =>
@@ -123,9 +124,13 @@ class BlockCoordinateDescent extends Logging with Serializable {
           //   ax
           // }
         }
+        blockResidual.cache()
+        blockResidual.count
 
         // Local solve
         val newXjs = solver.solveManyLeastSquaresWithL2(aPart, b, blockResidual, lambdas)
+
+        blockResidual.unpersist(true)
 
         // Update output
         val newXBroadcast = b.rdd.context.broadcast(newXjs)
@@ -134,10 +139,13 @@ class BlockCoordinateDescent extends Logging with Serializable {
           val newXsB = newXBroadcast.value
 
           var i = 0
+          val tmp = new DenseMatrix[Double](newXsB(0).rows, newXsB(0).cols)
           while (i < xsB.length) {
-            val diff = newXsB(i) - xsB(i)
-            val newRes = part._1.mat * diff
+            tmp :+= newXsB(i)
+            tmp :-= xsB(i)
+            val newRes = part._1.mat * tmp
             part._2(i) :+= newRes
+            java.util.Arrays.fill(tmp.data, 0.0)
             i = i + 1
           }
           part._2
@@ -149,7 +157,7 @@ class BlockCoordinateDescent extends Logging with Serializable {
 
         // Materialize this output and remove the older output
         newOutput.count()
-        output.unpersist()
+        output.unpersist(true)
 
         xsBroadcast.unpersist()
         newXBroadcast.unpersist()
@@ -161,6 +169,12 @@ class BlockCoordinateDescent extends Logging with Serializable {
         // Call the intermediate callback if we have one
         intermediateCallback.foreach { fn =>
           fn(xs(p), p)
+        }
+
+        // Run parallel GC
+        sc.parallelize(0 until sc.getExecutorMemoryStatus.size,
+          sc.getExecutorMemoryStatus.size).foreach { x =>
+          System.gc()
         }
       }
     }
