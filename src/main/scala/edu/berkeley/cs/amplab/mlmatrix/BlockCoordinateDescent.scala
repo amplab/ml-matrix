@@ -71,7 +71,8 @@ class BlockCoordinateDescent extends Logging with Serializable {
     numIters: Int,
     solver: RowPartitionedSolver,
     intermediateCallback: Option[(Seq[DenseMatrix[Double]], Int) => Unit] = None, // Called after each column block 
-    checkpointIntermediate: Boolean = false): Seq[Seq[DenseMatrix[Double]]]  = {
+    checkpointIntermediate: Boolean = false,
+    shuffleColBlocks: Boolean = true): Seq[Seq[DenseMatrix[Double]]]  = {
 
     val sc = b.rdd.context
     val numColBlocks = aParts.length
@@ -99,7 +100,11 @@ class BlockCoordinateDescent extends Logging with Serializable {
 
     (0 until numIters).foreach { iter =>
       // Step 2: Pick a random permutation
-      val permutation = scala.util.Random.shuffle((0 until numColBlocks).toList)
+      val permutation = if (shuffleColBlocks) {
+        scala.util.Random.shuffle((0 until numColBlocks).toList)
+      } else {
+        (0 until numColBlocks).toList
+      }
       permutation.foreach { p =>
         val aPart = aParts(p)
 
