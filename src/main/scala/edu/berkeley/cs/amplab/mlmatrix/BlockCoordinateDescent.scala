@@ -72,7 +72,7 @@ class BlockCoordinateDescent extends Logging with Serializable {
     solver: RowPartitionedSolver,
     intermediateCallback: Option[(Seq[DenseMatrix[Double]], Int) => Unit] = None, // Called after each column block 
     checkpointIntermediate: Boolean = false,
-    shuffleColBlocks: Boolean = true): Seq[Seq[DenseMatrix[Double]]]  = {
+    shuffleColBlocks: Boolean = false): Seq[Seq[DenseMatrix[Double]]]  = {
 
     val sc = b.rdd.context
     val numColBlocks = aParts.length
