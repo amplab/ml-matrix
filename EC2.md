@@ -34,6 +34,12 @@ ln -sf /root/openblas-install/lib/libblas.so.3 /usr/lib64/liblapack.so.3
 ln -sf /root/openblas-install/lib/libblas.so.3 /usr/lib64/libblas.so.3
 ```
 
+After you are done running this, you can verify if the right BLAS is linked by running something like
+```
+~/spark/sbin/slaves.sh readlink -e /usr/lib64/libblas.so.3
+```
+Which should return something like `/root/openblas-install/lib/libopenblas_sandybridgep-r0.2.14.so`
+
 Before running an application, `copy-dir` the application jar, and make sure the application jar is
 prepended to `spark.executor.extraClassPath` in `conf/spark-defaults.conf`:
 
