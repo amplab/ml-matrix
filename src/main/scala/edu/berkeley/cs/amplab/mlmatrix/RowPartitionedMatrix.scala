@@ -338,53 +338,12 @@ object RowPartitionedMatrix {
       rowsPerPartition: Seq[Int],
       cols: Int) = {
     val matrixRDD = df.map(x => x.toSeq.toArray).map(y => y.map(z => z.asInstanceOf[Double]))
-    val rBroadcast = matrixRDD.context.broadcast(rowsPerPartition)
-    val data = matrixRDD.mapPartitionsWithIndex { case (part, iter) =>
-      val rows = rBroadcast.value(part)
-      val matData = new Array[Double](rows * cols)
-      var nRow = 0
-      while (iter.hasNext) {
-        val arr = iter.next()
-        var idx = 0
-        while (idx < arr.size) {
-          matData(nRow + idx * rows) = arr(idx)
-          idx = idx + 1
-        }
-        nRow += 1
-      }
-      Iterator(new DenseMatrix[Double](rows, cols, matData.toArray))
-    }
-    data
+    arrayToMatrix(matrixRDD, rowsPerPartition, cols)
   }
 
   def dataFrameToMatrix(df: DataFrame): RDD[DenseMatrix[Double]] = {
     val matrixRDD = df.map(x => x.toSeq.toArray).map(y => y.map(z => z.asInstanceOf[Double]))
-    val rowsColsPerPartition = matrixRDD.mapPartitionsWithIndex { case (part, iter) =>
-      if (iter.hasNext) {
-        val nCols = iter.next().size
-        Iterator((part, 1 + iter.size, nCols))
-      } else {
-        Iterator((part, 0, 0))
-      }
-    }.collect().sortBy(x => (x._1, x._2, x._3)).map(x => (x._1, (x._2, x._3))).toMap
-    val rBroadcast = matrixRDD.context.broadcast(rowsColsPerPartition)
-
-    val data = matrixRDD.mapPartitionsWithIndex { case (part, iter) =>
-      val (rows, cols) = rBroadcast.value(part)
-      val matData = new Array[Double](rows * cols)
-      var nRow = 0
-      while (iter.hasNext) {
-        val arr = iter.next()
-        var idx = 0
-        while (idx < arr.size) {
-          matData(nRow + idx * rows) = arr(idx)
-          idx = idx + 1
-        }
-        nRow += 1
-      }
-      Iterator(new DenseMatrix[Double](rows, cols, matData.toArray))
-    }
-    data
+    arrayToMatrix(matrixRDD)
   }
 
   // Create a RowPartitionedMatrix containing random numbers from the unit uniform
