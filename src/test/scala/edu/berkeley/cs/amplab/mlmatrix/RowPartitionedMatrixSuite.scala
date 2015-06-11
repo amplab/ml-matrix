@@ -98,4 +98,27 @@ class RowPartitionedMatrixSuite extends FunSuite with LocalSparkContext with Log
     assert(rL == rD)
   }
 
+  test("reduceRowElements() with the original data in a DataFrame") {
+    sc = new SparkContext("local", "test")
+    val sqlContext = new SQLContext(sc)
+    val testRDD = sc.parallelize(Seq(
+        Array(1, 2, 3),
+        Array(1, 9, -1),
+        Array(0, 0, 1),
+        Array(0, 1, 0)
+    )).map(x => Row(x(0), x(1), x(2)))
+    val testSchema = StructType(
+        StructField("v1", DoubleType, true) ::
+        StructField("v2", DoubleType, true) ::
+        StructField("v3", DoubleType, true) :: Nil)
+    val testDF = sqlContext.createDataFrame(testRDD, testSchema)
+    val testMat = RowParitionedMatrix.fromDataFrame(testDF)
+    val rowProducts = testMat.reduceRowElements(_ * _)
+
+    assert(rowProducts.collect().toArray === Array(6, -9, 0, 0),
+      "reduceRowElements() does not return correct answers!")
+    assert(rowProducts.numRows() === 4, "reduceRowElements() returns a result with incorrect row count!")
+    assert(rowProducts.numCols() === 1, "reduceRowElements() returns a result with incorrect col count!")
+  }
+
 }
