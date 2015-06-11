@@ -11,6 +11,9 @@ import org.netlib.util.doubleW
 
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SQLContext
+import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.types._
 
 /** Note: [[breeze.linalg.DenseMatrix]] by default uses column-major layout. */
 case class RowPartition(mat: DenseMatrix[Double]) extends Serializable
@@ -311,6 +314,61 @@ object RowPartitionedMatrix {
     data
   }
 
+  // Convert a DataFrame of all DoubleType columns to a RowPartionedMatix
+  def fromDataFrame(df: DataFrame): RowPartitionedMatrix = {
+    require(df.dtypes.forall(_._2 == "DoubleType"),
+      "The provided DataFrame must contain all 'DoubleType' columns")
+    fromMatrix(dataFrameToMatrix(df))
+  }
+
+  def fromDataFrame(
+      df: DataFrame,
+      rowsPerPartition: Seq[Int],
+      cols: Int): RowPartitionedMatrix = {
+    require(df.dtypes.forall(_._2 == "DoubleType"),
+      "The provided DataFrame must contain all 'DoubleType' columns")
+    new RowPartitionedMatrix(
+      dataFrameToMatrix(df, rowsPerPartition, cols).map(mat => RowPartition(mat)),
+        Some(rowsPerPartition.sum), Some(cols))
+  }
+
+  // Convert a DataFrame of all DoubleType columns to a RDD[DenseMatrix[Double]]
+  def dataFrameToMatrix(
+      df: DataFrame,
+      rowsPerPartition: Seq[Int],
+      cols: Int) = {
+    val matrixRDD = df.map(x => x.toSeq.toArray).map(y => y.map(z => z.asInstanceOf[Double]))
+    val rBroadcast = matrixRDD.context.broadcast(rowsPerPartition)
+    val data = matrixRDD.mapPartitionsWithIndex { case (part, iter) =>
+      val rows = rBroadcast.value(part)
+      val matData = new Array[Double](rows * cols)
+      var nRow = 0
+      while (iter.hasNext) {
+        val arr = iter.next()
+        var idx = 0
+        while (idx < arr.size) {
+          matData(nRow + idx * rows) = arr(idx)
+          idx = idx + 1
+        }
+        nRow += 1
+      }
+      Iterator(new DenseMatrix[Double](rows, cols, matData.toArray))
+    }
+    data
+  }
+
+  def dataFrameToMatrix(df: DataFrame): RDD[DenseMatrix[Double]] = {
+    val matrixRDD = df.map(x => x.toSeq.toArray).map(y => y.map(z => z.asInstanceOf[Double]))
+    val rowsColsPerPartition = matrixRDD.mapPartitionsWithIndex { case (part, iter) =>
+      if (iter.hasNext) {
+        val nCols = iter.next().size
+        Iterator((part, 1 + iter.size, nCols))
+      } else {
+        Iterator((part, 0, 0))
+      }
+    }.collect().sortBy(x => (x._1, x._2, x._3)).map(x => (x._1, (x._2, x._3))).toMap
+
+  // Create a RowPartitionedMatrix containing random numbers from the unit uniform
   def createRandom(sc: SparkContext,
       numRows: Int,
       numCols: Int,
