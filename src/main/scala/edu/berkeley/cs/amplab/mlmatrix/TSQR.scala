@@ -113,13 +113,16 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
         DenseMatrix[Double]) = {
     val qrTreeSeq = new ArrayBuffer[(Int, RDD[(Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double]))])]
 
-    val matPartInfo = mat.getPartitionInfo
+    val matPartInfo: Map[Int, Array[RowPartitionInfo]] = mat.getPartitionInfo
     val matPartInfoBroadcast = mat.rdd.context.broadcast(matPartInfo)
 
-    var qrTree = mat.rdd.mapPartitionsWithIndex { case (part, iter) =>
+    // Create a tree of YTR values. The first of the tree operates on the input matrix `mat`.
+    var qrTree = mat.rdd.mapPartitionsWithIndex { case (part: Int, iter: Iterator[RowPartition]) =>
       if (matPartInfoBroadcast.value.contains(part) && !iter.isEmpty) {
-        val partBlockIds = matPartInfoBroadcast.value(part).sortBy(x=> x.blockId).map(x => x.blockId)
-        iter.zip(partBlockIds.iterator).map { case (lm, bi) =>
+        val partBlockIds: Array[Int] = matPartInfoBroadcast.value(part).sortBy(x=> x.blockId).map(x => x.blockId)
+        val partBlockIdsIterator: Iterator[Int] = partBlockIds.iterator
+        // Zip blocks in this partition with their ids
+        iter.zip(partBlockIds.iterator).map { case (lm: RowPartition, bi: Int) =>
           if (lm.mat.rows < lm.mat.cols) {
             (
               bi,
@@ -138,13 +141,17 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     }
 
     var numParts = matPartInfo.flatMap(x => x._2.map(y => y.blockId)).size
+
+    // Add the current tree to the Seq that we will return
     qrTreeSeq.append((numParts, qrTree))
 
+    // Now run a loop that will create levels of the tree, halved in size in each iteration.
     while (numParts > 1) {
-      qrTree = qrTree.map(x => ((x._1/2.0).toInt, x._2)).reduceByKey(
+      qrTree = qrTree.map(x => ((x._1/2.0).toInt, (x._1, x._2))).reduceByKey(
         numPartitions=math.ceil(numParts/2.0).toInt,
-        func=reduceYTR(_, _))
+        func=reduceYTR(_, _)).map(x => (x._1, x._2._2))
       numParts = math.ceil(numParts/2.0).toInt
+      // NOTE(shivaram): The reduceByKey operation is eager, so this should be safe
       qrTreeSeq.append((numParts, qrTree))
     }
     val r = qrTree.map(x => x._2._3).collect()(0)
@@ -152,10 +159,15 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
   }
 
   private def reduceYTR(
-      a: (DenseMatrix[Double], Array[Double], DenseMatrix[Double]),
-      b: (DenseMatrix[Double], Array[Double], DenseMatrix[Double]))
-    : (DenseMatrix[Double], Array[Double], DenseMatrix[Double]) = {
-    QRUtils.qrYTR(DenseMatrix.vertcat(a._3, b._3))
+      a: (Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double])),
+      b: (Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double])))
+    : (Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double])) = {
+    // Stack the lower id above the higher id
+    if (a._1 < b._1) {
+      (a._1, QRUtils.qrYTR(DenseMatrix.vertcat(a._2._3, b._2._3)))
+    } else {
+      (b._1, QRUtils.qrYTR(DenseMatrix.vertcat(b._2._3, a._2._3)))
+    }
   }
 
   // From http://math.stackexchange.com/questions/299481/qr-factorization-for-ridge-regression
@@ -226,7 +238,7 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
       }
     }
 
-    val qrResult = Utils.treeReduce(qrTree, reduceQRSolveMany, 
+    val qrResult = Utils.treeReduce(qrTree, reduceQRSolveMany,
       depth=math.ceil(math.log(A.rdd.partitions.size)/math.log(2)).toInt)
     val rFinal = qrResult._1
 
