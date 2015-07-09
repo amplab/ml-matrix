@@ -138,9 +138,10 @@ object QRUtils {
 
     val lwork1 = if(info.`val` != 0) result.cols else work(0).toInt
     val workspace = new Array[Double](lwork1)
-
-    lapack.dormqr("L", trans, result.rows, result.cols, T.length, Y.data, Y.rows, T,
-      result.data, result.rows, workspace, workspace.length, info)
+    QRUtils.synchronized {
+      lapack.dormqr("L", trans, result.rows, result.cols, T.length, Y.data, Y.rows, T,
+        result.data, result.rows, workspace, workspace.length, info)
+    }
 
     if (info.`val` > 0)
       throw new NotConvergedException(NotConvergedException.Iterations)
