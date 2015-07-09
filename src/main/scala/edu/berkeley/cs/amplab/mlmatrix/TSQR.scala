@@ -113,16 +113,16 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
         DenseMatrix[Double]) = {
     val qrTreeSeq = new ArrayBuffer[(Int, RDD[(Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double]))])]
 
-    val matPartInfo: Map[Int, Array[RowPartitionInfo]] = mat.getPartitionInfo
+    val matPartInfo = mat.getPartitionInfo
     val matPartInfoBroadcast = mat.rdd.context.broadcast(matPartInfo)
 
     // Create a tree of YTR values. The first of the tree operates on the input matrix `mat`.
-    var qrTree = mat.rdd.mapPartitionsWithIndex { case (part: Int, iter: Iterator[RowPartition]) =>
+    var qrTree = mat.rdd.mapPartitionsWithIndex { case (part, iter) =>
       if (matPartInfoBroadcast.value.contains(part) && !iter.isEmpty) {
-        val partBlockIds: Array[Int] = matPartInfoBroadcast.value(part).sortBy(x=> x.blockId).map(x => x.blockId)
-        val partBlockIdsIterator: Iterator[Int] = partBlockIds.iterator
+        val partBlockIds = matPartInfoBroadcast.value(part).sortBy(x=> x.blockId).map(x => x.blockId)
+        val partBlockIdsIterator = partBlockIds.iterator
         // Zip blocks in this partition with their ids
-        iter.zip(partBlockIds.iterator).map { case (lm: RowPartition, bi: Int) =>
+        iter.zip(partBlockIds.iterator).map { case (lm, bi) =>
           if (lm.mat.rows < lm.mat.cols) {
             (
               bi,
