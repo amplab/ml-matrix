@@ -16,6 +16,11 @@ import org.apache.spark.SparkContext._
 
 class TSQR extends RowPartitionedSolver with Logging with Serializable {
 
+  /**
+   * Returns only the R factor of a QR decomposition of the input matrix. This
+   * operation is not reproducible since the R factors inside the TSQR tree can
+   * be combined in any order.
+   */
   def qrR(mat: RowPartitionedMatrix): DenseMatrix[Double] = {
     val localQR = mat.rdd.context.accumulator(0.0, "Time taken for Local QR")
 
@@ -33,12 +38,27 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     Utils.treeReduce(qrTree, reduceQR(localQR, _ : DenseMatrix[Double], _ : DenseMatrix[Double]), depth=depth)
   }
 
-  private def reduceQR(acc: Accumulator[Double], a: DenseMatrix[Double], b: DenseMatrix[Double]): DenseMatrix[Double] = {
+  /**
+   * Concatenates two matrices in a commutative reduce operation
+   * and then returns the R factor of the QR factorization of the concatenated matrix
+   */
+  private def reduceQR(
+      acc: Accumulator[Double],
+      a: DenseMatrix[Double],
+      b: DenseMatrix[Double]): DenseMatrix[Double] = {
     val begin = System.nanoTime
     val out = QRUtils.qrR(DenseMatrix.vertcat(a, b), false)
     acc += ((System.nanoTime - begin) / 1e6)
     out
   }
+
+  /**
+   * Returns both the Q and R factor of a QR decomposiion of the input matrix.
+   * The TSQR tree used is always assumed to be binary. The order in which the R
+   * factors are combined inside the TSQR tree must be preserved so that the Q
+   * can be accurately reconstructed. Thus, the reduce operation used cannot be
+   * commutative.
+   */
 
   def qrQR(mat: RowPartitionedMatrix): (RowPartitionedMatrix, DenseMatrix[Double]) = {
     // First step run TSQR, get YTR tree
@@ -46,7 +66,8 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
 
     var curTreeIdx = qrTree.size - 1
 
-    // Now construct Q by going up the tree
+    // Now construct Q by starting at the root of the YTR tree and applying
+    // the appropriate Q factors to the identity matrix.
     var qrRevTree = qrTree(curTreeIdx)._2.map { part =>
       val yPart = part._2._1
       val tPart = part._2._2
@@ -120,7 +141,6 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     var qrTree = mat.rdd.mapPartitionsWithIndex { case (part, iter) =>
       if (matPartInfoBroadcast.value.contains(part) && !iter.isEmpty) {
         val partBlockIds = matPartInfoBroadcast.value(part).sortBy(x=> x.blockId).map(x => x.blockId)
-        val partBlockIdsIterator = partBlockIds.iterator
         // Zip blocks in this partition with their ids
         iter.zip(partBlockIds.iterator).map { case (lm, bi) =>
           if (lm.mat.rows < lm.mat.cols) {
@@ -158,6 +178,10 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     (qrTreeSeq, r)
   }
 
+  /**
+   * Concatenates two R factors in an ordered non-commutative fashion. Keys are
+   * used to enforce an order. Returns the YTR factorization of the concated matrix.
+   */
   private def reduceYTR(
       a: (Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double])),
       b: (Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double])))
@@ -170,10 +194,12 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     }
   }
 
-  // From http://math.stackexchange.com/questions/299481/qr-factorization-for-ridge-regression
-  // To solve QR with L2, we need to factorize \pmatrix{ A \\ \Gamma}
-  // i.e. A and \Gamma stacked vertically, where \Gamma is a nxn Matrix.
-  // To do this we first use TSQR on A and then locally stack \Gamma below and recompute QR.
+  /**
+   * From http://math.stackexchange.com/questions/299481/qr-factorization-for-ridge-regression
+   * To solve QR with L2, we need to factorize \pmatrix{ A \\ \Gamma}
+   * i.e. A and \Gamma stacked vertically, where \Gamma is a nxn Matrix.
+   * To do this we first use TSQR on A and then locally stack \Gamma below and recompute QR.
+   */
   def solveLeastSquaresWithManyL2(
       A: RowPartitionedMatrix,
       b: RowPartitionedMatrix,
@@ -207,6 +233,14 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     results
   }
 
+  /**
+   * Commutative reduce operation that concatenates R and B factors of two separate
+   * matrices, and then takes a QR factorization of the concatenated matrix and returns
+   * both the new R and Q^TB. Note that if Q is permuted in this operation, then so is
+   * B and the effect of the permutation is immediately negated when Q^TB is construncted
+   * since Q^TB = Q^TP^TPB. Any function that uses this reduce operation is not reproducible
+   * since the R's can be combined in any order.
+   */
   private def reduceQRSolve(
       a: (DenseMatrix[Double], DenseMatrix[Double]),
       b: (DenseMatrix[Double], DenseMatrix[Double])): (DenseMatrix[Double], DenseMatrix[Double]) = {
@@ -257,6 +291,10 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     results
   }
 
+  /**
+   * This function has similar reproducibility/commutativity properties as
+   * reduceQRSolve. See comment above.
+   */
   private def reduceQRSolveMany(
       a: (DenseMatrix[Double], Array[DenseMatrix[Double]]),
       b: (DenseMatrix[Double], Array[DenseMatrix[Double]])):
