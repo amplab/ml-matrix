@@ -17,9 +17,8 @@ import org.apache.spark.SparkContext._
 class TSQR extends RowPartitionedSolver with Logging with Serializable {
 
   /**
-   * Returns only the R factor of a QR decomposition of the input matrix. This
-   * operation is not reproducible since the R factors inside the TSQR tree can
-   * be combined in any order.
+   * Returns only the R factor of a QR decomposition of the input matrix.
+   * The value of R is not reproducible across multiple invocations of the function
    */
   def qrR(mat: RowPartitionedMatrix): DenseMatrix[Double] = {
     val localQR = mat.rdd.context.accumulator(0.0, "Time taken for Local QR")
@@ -54,10 +53,8 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
 
   /**
    * Returns both the Q and R factor of a QR decomposiion of the input matrix.
-   * The TSQR tree used is always assumed to be binary. The order in which the R
-   * factors are combined inside the TSQR tree must be preserved so that the Q
-   * can be accurately reconstructed. Thus, the reduce operation used cannot be
-   * commutative.
+   * The returned values of Q and R are reproducible, i.e. they should be the same
+   * across multiple invocations of the function
    */
 
   def qrQR(mat: RowPartitionedMatrix): (RowPartitionedMatrix, DenseMatrix[Double]) = {
