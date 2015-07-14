@@ -58,46 +58,53 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
    */
   def qrQR(mat: RowPartitionedMatrix): (RowPartitionedMatrix, DenseMatrix[Double]) = {
     // First step run TSQR, get YTR tree
-    val (qrTree, r) = qrYTR(mat)
+    val (qrTreeSeq, r) = qrYTR(mat)
 
-    var curTreeIdx = qrTree.size - 1
+    val sc = mat.rdd.context
+    val lastIdx = qrTreeSeq.size - 1
+    val qrRevTreeSeq = new Array[RDD[(Int, DenseMatrix[Double])]](qrTreeSeq.size)
 
     // Now construct Q by starting at the root of the YTR tree and applying
-    // the appropriate Q factors to the identity matrix.
-    var qrRevTree = qrTree(curTreeIdx)._2.map { part =>
-      val yPart = part._2._1
-      val tPart = part._2._2
-      val qIn = new DenseMatrix[Double](yPart.rows, yPart.cols)
-      for (i <- 0 until yPart.cols) {
+    // the appropriate Q factors to the identity matrix. Each level of the
+    // reverse tree is constructed by joining the corresponding level of
+    // qrTree with the next level of qrRevTree.  For example, level 2 of
+    // qrRevTree will be the result of joining level 2 of qrTree and level 1 of
+    // qrRevTree
+    var qrRevTree = qrTreeSeq(lastIdx)._2.map { part =>
+      assert(part._1 == 0)
+      val y = part._2._1
+      val t = part._2._2
+      val qIn = new DenseMatrix[Double](y.rows, y.cols)
+      for (i <- 0 until y.cols) {
         qIn(i, i) =  1.0
       }
-      (part._1, QRUtils.applyQ(yPart, tPart, qIn, transpose=false))
+      (part._1, QRUtils.applyQ(y, t, qIn, transpose=false))
     }.flatMap { x =>
       val nrows = x._2.rows
       Iterator((x._1 * 2, x._2),
                (x._1 * 2 + 1, x._2))
     }
 
-    var prevTree = qrRevTree
+    qrRevTreeSeq(lastIdx) = qrRevTree
+    var curTreeIdx = lastIdx
 
     while (curTreeIdx > 0) {
       curTreeIdx = curTreeIdx - 1
-      prevTree = qrRevTree
       if (curTreeIdx > 0) {
-        val nextNumParts = qrTree(curTreeIdx - 1)._1
-        qrRevTree = qrTree(curTreeIdx)._2.join(prevTree).flatMap { part =>
-          val yPart = part._2._1._1
-          val tPart = part._2._1._2
+        val nextNumPartsBC = sc.broadcast(qrTreeSeq(curTreeIdx - 1)._1)
+        qrRevTree = qrTreeSeq(curTreeIdx)._2.join(qrRevTreeSeq(curTreeIdx + 1)).flatMap { part =>
+          val y = part._2._1._1
+          val t = part._2._1._2
           val qPart = if (part._1 % 2 == 0) {
-            val e = math.min(yPart.rows, yPart.cols)
+            val e = math.min(y.rows, y.cols)
             part._2._2(0 until e, ::)
           } else {
-            val numRows = math.min(yPart.rows, yPart.cols)
+            val numRows = math.min(y.rows, y.cols)
             val s = part._2._2.rows - numRows
             part._2._2(s until part._2._2.rows, ::)
           }
-          if (part._1 * 2 + 1 < nextNumParts) {
-            val qOut = QRUtils.applyQ(yPart, tPart, qPart, transpose=false)
+          if (part._1 * 2 + 1 < nextNumPartsBC.value) {
+            val qOut = QRUtils.applyQ(y, t, qPart, transpose=false)
             val nrows = qOut.rows
             Iterator((part._1 * 2, qOut),
                      (part._1 * 2 + 1, qOut))
@@ -106,22 +113,22 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
           }
         }
       } else {
-        qrRevTree = qrTree(curTreeIdx)._2.join(prevTree).map { part =>
-          val yPart = part._2._1._1
-          val tPart = part._2._1._2
+        qrRevTree = qrTreeSeq(curTreeIdx)._2.join(qrRevTreeSeq(curTreeIdx+1)).map { part =>
+          val y = part._2._1._1
+          val t = part._2._1._2
           val qPart = if (part._1 % 2 == 0) {
-            val e = math.min(yPart.rows, yPart.cols)
+            val e = math.min(y.rows, y.cols)
             part._2._2(0 until e, ::)
           } else {
-            val numRows = math.min(yPart.rows, yPart.cols)
+            val numRows = math.min(y.rows, y.cols)
             val s = part._2._2.rows - numRows
             part._2._2(s until part._2._2.rows, ::)
           }
-          (part._1, QRUtils.applyQ(yPart, tPart, qPart, transpose=false))
+          (part._1, QRUtils.applyQ(y, t, qPart, transpose=false))
         }
       }
+      qrRevTreeSeq(curTreeIdx) = qrRevTree
     }
-
     (RowPartitionedMatrix.fromMatrix(qrRevTree.map(x => x._2)), r)
   }
 
