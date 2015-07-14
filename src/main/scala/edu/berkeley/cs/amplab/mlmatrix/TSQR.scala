@@ -56,7 +56,6 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
    * The returned values of Q and R are reproducible, i.e. they should be the same
    * across multiple invocations of the function
    */
-
   def qrQR(mat: RowPartitionedMatrix): (RowPartitionedMatrix, DenseMatrix[Double]) = {
     // First step run TSQR, get YTR tree
     val (qrTree, r) = qrYTR(mat)
