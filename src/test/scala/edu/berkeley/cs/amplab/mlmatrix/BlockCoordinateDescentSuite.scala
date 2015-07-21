@@ -17,6 +17,28 @@ class BlockCoordinateDescentSuite extends FunSuite with LocalSparkContext {
     DenseMatrix.vertcat(a, b)
   }
 
+  test("test Seq[RowPartitionedMatrix] with one partition") {
+    sc = new SparkContext("local", "test")
+    // Simulate one small partition input
+    val nrow = 10
+    // NOTE(shivaram): ncol can't be greater than 10 if we want to verify this locally
+    val ncol = 10
+    val aParts = Seq(RowPartitionedMatrix.createRandom(sc, nrow, ncol, 1, cache=true))
+    val b = aParts(0).mapPartitions(
+      part => DenseMatrix.rand(part.rows, 1)).cache()
+
+    val localA = aParts(0).collect()
+    val localb = b.collect()
+    val localX = localA \ localb
+
+    val xs = new BlockCoordinateDescent().solveLeastSquaresWithL2(aParts, b, Array(0.0), 10,
+      new NormalEquations()).map(x => x.head)
+
+    val xFull = xs.reduceLeft(vertCatReduce)
+    val diff = abs(xFull - localX)
+    assert(Utils.aboutEq(xFull, localX, 1e-1))
+  }
+
   test("test Seq[RowPartitionedMatrix] using NormalEquations") {
     sc = new SparkContext("local", "test")
     val nParts = 2
