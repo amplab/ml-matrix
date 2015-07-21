@@ -5,6 +5,9 @@ import org.scalatest.FunSuite
 import breeze.linalg._
 
 import org.apache.spark.SparkContext
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.{SQLContext, DataFrame, Row}
+import org.apache.spark.sql.types._
 
 class RowPartitionedMatrixSuite extends FunSuite with LocalSparkContext with Logging {
 
@@ -96,6 +99,29 @@ class RowPartitionedMatrixSuite extends FunSuite with LocalSparkContext with Log
     val rL = matrixParts.reduceLeftOption((a, b) => DenseMatrix.vertcat(a, b)).getOrElse(new DenseMatrix[Double](0, 0))
     val rD = r.collect()
     assert(rL == rD)
+  }
+
+  test("reduceRowElements() with the original data in a DataFrame") {
+    sc = new SparkContext("local", "test")
+    val sqlContext = new SQLContext(sc)
+    val testRDD = sc.parallelize(Seq(
+        Array(1.0, 2.0, 3.0),
+        Array(1.0, 9.0, -1.0),
+        Array(0.0, 0.0, 1.0),
+        Array(0.0, 1.0, 0.0)
+    )).map(x => Row(x(0), x(1), x(2)))
+    val testSchema = StructType(
+        StructField("v1", DoubleType, true) ::
+        StructField("v2", DoubleType, true) ::
+        StructField("v3", DoubleType, true) :: Nil)
+    val testDF = sqlContext.createDataFrame(testRDD, testSchema)
+    val testMat = RowPartitionedMatrix.fromDataFrame(testDF)
+    val rowProducts = testMat.reduceRowElements(_ * _)
+
+    assert(rowProducts.collect().toArray === Array(6.0, -9.0, 0.0, 0.0),
+      "reduceRowElements() does not return correct answers!")
+    assert(rowProducts.numRows() === 4, "reduceRowElements() returns a result with incorrect row count!")
+    assert(rowProducts.numCols() === 1, "reduceRowElements() returns a result with incorrect col count!")
   }
 
 }

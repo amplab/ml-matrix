@@ -16,6 +16,10 @@ import org.apache.spark.SparkContext._
 
 class TSQR extends RowPartitionedSolver with Logging with Serializable {
 
+  /**
+   * Returns only the R factor of a QR decomposition of the input matrix.
+   * The value of R is not reproducible across multiple invocations of the function
+   */
   def qrR(mat: RowPartitionedMatrix): DenseMatrix[Double] = {
     val localQR = mat.rdd.context.accumulator(0.0, "Time taken for Local QR")
 
@@ -34,54 +38,74 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     Utils.treeReduce(qrTree, reduceQR(localQR, _ : DenseMatrix[Double], _ : DenseMatrix[Double]), depth=depth)
   }
 
-  private def reduceQR(acc: Accumulator[Double], a: DenseMatrix[Double], b: DenseMatrix[Double]): DenseMatrix[Double] = {
+  /**
+   * Concatenates two matrices in a commutative reduce operation
+   * and then returns the R factor of the QR factorization of the concatenated matrix
+   */
+  private def reduceQR(
+      acc: Accumulator[Double],
+      a: DenseMatrix[Double],
+      b: DenseMatrix[Double]): DenseMatrix[Double] = {
     val begin = System.nanoTime
     val out = QRUtils.qrR(DenseMatrix.vertcat(a, b), false)
     acc += ((System.nanoTime - begin) / 1e6)
     out
   }
 
+  /**
+   * Returns both the Q and R factor of a QR decomposiion of the input matrix.
+   * The returned values of Q and R are reproducible, i.e. they should be the same
+   * across multiple invocations of the function
+   */
   def qrQR(mat: RowPartitionedMatrix): (RowPartitionedMatrix, DenseMatrix[Double]) = {
     // First step run TSQR, get YTR tree
-    val (qrTree, r) = qrYTR(mat)
+    val (qrTreeSeq, r) = qrYTR(mat)
 
-    var curTreeIdx = qrTree.size - 1
+    val sc = mat.rdd.context
+    val lastIdx = qrTreeSeq.size - 1
+    val qrRevTreeSeq = new Array[RDD[(Int, DenseMatrix[Double])]](qrTreeSeq.size)
 
-    // Now construct Q by going up the tree
-    var qrRevTree = qrTree(curTreeIdx)._2.map { part =>
-      val yPart = part._2._1
-      val tPart = part._2._2
-      val qIn = new DenseMatrix[Double](yPart.rows, yPart.cols)
-      for (i <- 0 until yPart.cols) {
+    // Now construct Q by starting at the root of the YTR tree and applying
+    // the appropriate Q factors to the identity matrix. Each level of the
+    // reverse tree is constructed by joining the corresponding level of
+    // qrTree with the next level of qrRevTree.  For example, level 2 of
+    // qrRevTree will be the result of joining level 2 of qrTree and level 1 of
+    // qrRevTree
+    var qrRevTree = qrTreeSeq(lastIdx)._2.map { part =>
+      assert(part._1 == 0)
+      val y = part._2._1
+      val t = part._2._2
+      val qIn = new DenseMatrix[Double](y.rows, y.cols)
+      for (i <- 0 until y.cols) {
         qIn(i, i) =  1.0
       }
-      (part._1, QRUtils.applyQ(yPart, tPart, qIn, transpose=false))
+      (part._1, QRUtils.applyQ(y, t, qIn, transpose=false))
     }.flatMap { x =>
       val nrows = x._2.rows
       Iterator((x._1 * 2, x._2),
                (x._1 * 2 + 1, x._2))
     }
 
-    var prevTree = qrRevTree
+    qrRevTreeSeq(lastIdx) = qrRevTree
+    var curTreeIdx = lastIdx
 
     while (curTreeIdx > 0) {
       curTreeIdx = curTreeIdx - 1
-      prevTree = qrRevTree
       if (curTreeIdx > 0) {
-        val nextNumParts = qrTree(curTreeIdx - 1)._1
-        qrRevTree = qrTree(curTreeIdx)._2.join(prevTree).flatMap { part =>
-          val yPart = part._2._1._1
-          val tPart = part._2._1._2
+        val nextNumPartsBC = sc.broadcast(qrTreeSeq(curTreeIdx - 1)._1)
+        qrRevTree = qrTreeSeq(curTreeIdx)._2.join(qrRevTreeSeq(curTreeIdx + 1)).flatMap { part =>
+          val y = part._2._1._1
+          val t = part._2._1._2
           val qPart = if (part._1 % 2 == 0) {
-            val e = math.min(yPart.rows, yPart.cols)
+            val e = math.min(y.rows, y.cols)
             part._2._2(0 until e, ::)
           } else {
-            val numRows = math.min(yPart.rows, yPart.cols)
+            val numRows = math.min(y.rows, y.cols)
             val s = part._2._2.rows - numRows
             part._2._2(s until part._2._2.rows, ::)
           }
-          if (part._1 * 2 + 1 < nextNumParts) {
-            val qOut = QRUtils.applyQ(yPart, tPart, qPart, transpose=false)
+          if (part._1 * 2 + 1 < nextNumPartsBC.value) {
+            val qOut = QRUtils.applyQ(y, t, qPart, transpose=false)
             val nrows = qOut.rows
             Iterator((part._1 * 2, qOut),
                      (part._1 * 2 + 1, qOut))
@@ -90,22 +114,22 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
           }
         }
       } else {
-        qrRevTree = qrTree(curTreeIdx)._2.join(prevTree).map { part =>
-          val yPart = part._2._1._1
-          val tPart = part._2._1._2
+        qrRevTree = qrTreeSeq(curTreeIdx)._2.join(qrRevTreeSeq(curTreeIdx+1)).map { part =>
+          val y = part._2._1._1
+          val t = part._2._1._2
           val qPart = if (part._1 % 2 == 0) {
-            val e = math.min(yPart.rows, yPart.cols)
+            val e = math.min(y.rows, y.cols)
             part._2._2(0 until e, ::)
           } else {
-            val numRows = math.min(yPart.rows, yPart.cols)
+            val numRows = math.min(y.rows, y.cols)
             val s = part._2._2.rows - numRows
             part._2._2(s until part._2._2.rows, ::)
           }
-          (part._1, QRUtils.applyQ(yPart, tPart, qPart, transpose=false))
+          (part._1, QRUtils.applyQ(y, t, qPart, transpose=false))
         }
       }
+      qrRevTreeSeq(curTreeIdx) = qrRevTree
     }
-
     (RowPartitionedMatrix.fromMatrix(qrRevTree.map(x => x._2)), r)
   }
 
@@ -117,9 +141,11 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     val matPartInfo = mat.getPartitionInfo
     val matPartInfoBroadcast = mat.rdd.context.broadcast(matPartInfo)
 
+    // Create a tree of YTR values. The first of the tree operates on the input matrix `mat`.
     var qrTree = mat.rdd.mapPartitionsWithIndex { case (part, iter) =>
       if (matPartInfoBroadcast.value.contains(part) && !iter.isEmpty) {
         val partBlockIds = matPartInfoBroadcast.value(part).sortBy(x=> x.blockId).map(x => x.blockId)
+        // Zip blocks in this partition with their ids
         iter.zip(partBlockIds.iterator).map { case (lm, bi) =>
           if (lm.mat.rows < lm.mat.cols) {
             (
@@ -139,30 +165,45 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     }
 
     var numParts = matPartInfo.flatMap(x => x._2.map(y => y.blockId)).size
+
+    // Add the current tree to the Seq that we will return
     qrTreeSeq.append((numParts, qrTree))
 
+    // Now run a loop that will create levels of the tree, halved in size in each iteration.
     while (numParts > 1) {
-      qrTree = qrTree.map(x => ((x._1/2.0).toInt, x._2)).reduceByKey(
+      qrTree = qrTree.map(x => ((x._1/2.0).toInt, (x._1, x._2))).reduceByKey(
         numPartitions=math.ceil(numParts/2.0).toInt,
-        func=reduceYTR(_, _))
+        func=reduceYTR(_, _)).map(x => (x._1, x._2._2))
       numParts = math.ceil(numParts/2.0).toInt
+      // NOTE(shivaram): The reduceByKey operation is eager, so this should be safe
       qrTreeSeq.append((numParts, qrTree))
     }
     val r = qrTree.map(x => x._2._3).collect()(0)
     (qrTreeSeq, r)
   }
 
+  /**
+   * Concatenates two R factors in an ordered non-commutative fashion. Keys are
+   * used to enforce an order. Returns the YTR factorization of the concated matrix.
+   */
   private def reduceYTR(
-      a: (DenseMatrix[Double], Array[Double], DenseMatrix[Double]),
-      b: (DenseMatrix[Double], Array[Double], DenseMatrix[Double]))
-    : (DenseMatrix[Double], Array[Double], DenseMatrix[Double]) = {
-    QRUtils.qrYTR(DenseMatrix.vertcat(a._3, b._3))
+      a: (Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double])),
+      b: (Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double])))
+    : (Int, (DenseMatrix[Double], Array[Double], DenseMatrix[Double])) = {
+    // Stack the lower id above the higher id
+    if (a._1 < b._1) {
+      (a._1, QRUtils.qrYTR(DenseMatrix.vertcat(a._2._3, b._2._3)))
+    } else {
+      (b._1, QRUtils.qrYTR(DenseMatrix.vertcat(b._2._3, a._2._3)))
+    }
   }
 
-  // From http://math.stackexchange.com/questions/299481/qr-factorization-for-ridge-regression
-  // To solve QR with L2, we need to factorize \pmatrix{ A \\ \Gamma}
-  // i.e. A and \Gamma stacked vertically, where \Gamma is a nxn Matrix.
-  // To do this we first use TSQR on A and then locally stack \Gamma below and recompute QR.
+  /**
+   * From http://math.stackexchange.com/questions/299481/qr-factorization-for-ridge-regression
+   * To solve QR with L2, we need to factorize \pmatrix{ A \\ \Gamma}
+   * i.e. A and \Gamma stacked vertically, where \Gamma is a nxn Matrix.
+   * To do this we first use TSQR on A and then locally stack \Gamma below and recompute QR.
+   */
   def solveLeastSquaresWithManyL2(
       A: RowPartitionedMatrix,
       b: RowPartitionedMatrix,
@@ -197,6 +238,14 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     results
   }
 
+  /**
+   * Commutative reduce operation that concatenates R and B factors of two separate
+   * matrices, and then takes a QR factorization of the concatenated matrix and returns
+   * both the new R and Q^TB. Note that if Q is permuted in this operation, then so is
+   * B and the effect of the permutation is immediately negated when Q^TB is construncted
+   * since Q^TB = Q^TP^TPB. Any function that uses this reduce operation is not reproducible
+   * since the R's can be combined in any order.
+   */
   private def reduceQRSolve(
       a: (DenseMatrix[Double], DenseMatrix[Double]),
       b: (DenseMatrix[Double], DenseMatrix[Double])): (DenseMatrix[Double], DenseMatrix[Double]) = {
@@ -228,7 +277,7 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
       }
     }
 
-    val qrResult = Utils.treeReduce(qrTree, reduceQRSolveMany, 
+    val qrResult = Utils.treeReduce(qrTree, reduceQRSolveMany,
       depth=math.ceil(math.log(math.max(A.rdd.partitions.size, 2.0))/math.log(2)).toInt)
     val rFinal = qrResult._1
 
@@ -247,6 +296,10 @@ class TSQR extends RowPartitionedSolver with Logging with Serializable {
     results
   }
 
+  /**
+   * This function has similar reproducibility/commutativity properties as
+   * reduceQRSolve. See comment above.
+   */
   private def reduceQRSolveMany(
       a: (DenseMatrix[Double], Array[DenseMatrix[Double]]),
       b: (DenseMatrix[Double], Array[DenseMatrix[Double]])):

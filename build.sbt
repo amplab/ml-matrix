@@ -13,7 +13,7 @@ scalaVersion := "2.10.4"
 parallelExecution in Test := false
 
 {
-  val defaultSparkVersion = "1.2.1"
+  val defaultSparkVersion = "1.3.1"
   val sparkVersion = scala.util.Properties.envOrElse("SPARK_VERSION", defaultSparkVersion)
   val excludeHadoop = ExclusionRule(organization = "org.apache.hadoop")
   libraryDependencies ++= Seq(
