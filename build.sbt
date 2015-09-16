@@ -8,6 +8,10 @@ version := "0.1"
 
 organization := "edu.berkeley.cs.amplab"
 
+licenses := Seq("Apache 2.0" -> url("https://raw.githubusercontent.com/amplab/ml-matrix/master/LICENSE"))
+
+homepage := Some(url("https://github.com/amplab/ml-matrix.git"))
+
 scalaVersion := "2.10.4"
 
 parallelExecution in Test := false
@@ -56,3 +60,32 @@ mergeStrategy in assembly <<= (mergeStrategy in assembly) { (old) =>
 }
 
 test in assembly := {}
+
+publishTo := {
+  val nexus = "https://oss.sonatype.org/"
+  if (isSnapshot.value)
+    Some("snapshots" at nexus + "content/repositories/snapshots")
+  else
+    Some("releases" at nexus + "service/local/staging/deploy/maven2")
+}
+
+publishMavenStyle := true
+
+publishArtifact in Test := false
+
+// To publish on maven-central, all required artifacts must also be hosted on maven central.
+pomIncludeRepository := { _ => false }
+
+pomExtra := (
+  <scm>
+    <url>git@github.com:amplab/ml-matrix.git</url>
+    <connection>scm:git:git@github.com:amplab/ml-matrix.git</connection>
+  </scm>
+  <developers>
+    <developer>
+      <id>shivaram</id>
+      <name>Shivaram Venkataraman</name>
+      <url>http://shivaram.org</url>
+    </developer>
+  </developers>
+)
