@@ -77,14 +77,15 @@ publishArtifact in Test := false
 pomIncludeRepository := { _ => false }
 
 pomExtra := (
-    <scm>
-      <url>git@github.com:amplab/ml-matrix.git</url>
-      <connection>scm:git:git@github.com:amplab/ml-matrix.git</connection>
-    </scm>
-        <developers>
-          <developer>
-            <id>shivaram</id>
-            <name>Shivaram Venkataraman</name>
-            <url>http://shivaram.org</url>
-          </developer>
-        </developers>)
+  <scm>
+    <url>git@github.com:amplab/ml-matrix.git</url>
+    <connection>scm:git:git@github.com:amplab/ml-matrix.git</connection>
+  </scm>
+  <developers>
+    <developer>
+      <id>shivaram</id>
+      <name>Shivaram Venkataraman</name>
+      <url>http://shivaram.org</url>
+    </developer>
+  </developers>
+)
