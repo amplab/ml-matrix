@@ -28,7 +28,7 @@ parallelExecution in Test := false
     "org.apache.spark" % "spark-mllib_2.10" % sparkVersion excludeAll(excludeHadoop),
     "commons-io" % "commons-io" % "2.4",
     "org.scalanlp" % "breeze_2.10" % "0.9",
-    "com.github.fommil.netlib" % "all" % "1.1.2",
+    "com.github.fommil.netlib" % "all" % "1.1.2" pomOnly(),
     "org.jblas" % "jblas" % "1.2.3"
   )
 }
