@@ -45,7 +45,7 @@ prepended to `spark.executor.extraClassPath` in `conf/spark-defaults.conf`:
 
 ```
 spark.executor.extraClassPath
-/root/ml-matrix/target/scala-2.10/mlmatrix-assembly-0.1.jar:/root/ephemeral-hdfs/conf
+/root/ml-matrix/target/scala-2.10/mlmatrix-assembly-0.1.1.jar:/root/ephemeral-hdfs/conf
 ```
 
 Lastly, make sure `export OMP_NUM_THREADS=1` is in `spark-env.sh`.
