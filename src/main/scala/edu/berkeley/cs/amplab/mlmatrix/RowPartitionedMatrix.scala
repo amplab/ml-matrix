@@ -337,12 +337,12 @@ object RowPartitionedMatrix {
       df: DataFrame,
       rowsPerPartition: Seq[Int],
       cols: Int) = {
-    val matrixRDD = df.map(x => x.toSeq.toArray).map(y => y.map(z => z.asInstanceOf[Double]))
+    val matrixRDD = df.rdd.map(x => x.toSeq.toArray).map(y => y.map(z => z.asInstanceOf[Double]))
     arrayToMatrix(matrixRDD, rowsPerPartition, cols)
   }
 
   def dataFrameToMatrix(df: DataFrame): RDD[DenseMatrix[Double]] = {
-    val matrixRDD = df.map(x => x.toSeq.toArray).map(y => y.map(z => z.asInstanceOf[Double]))
+    val matrixRDD = df.rdd.map(x => x.toSeq.toArray).map(y => y.map(z => z.asInstanceOf[Double]))
     arrayToMatrix(matrixRDD)
   }
 

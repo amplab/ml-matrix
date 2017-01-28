@@ -28,7 +28,7 @@ class TSQRSuite extends FunSuite with LocalSparkContext {
     val localA = A.collect()
 
     val (q, r) = new TSQR().qrQR(A)
-    val localQR = qr(localA)
+    val localQR = qr.reduced(localA)
 
     assert(Utils.aboutEq(abs(r), abs(localQR.r)))
 
@@ -53,7 +53,7 @@ class TSQRSuite extends FunSuite with LocalSparkContext {
     val localA = A.collect()
 
     val (q, r) = new TSQR().qrQR(A)
-    val localQR = qr(localA)
+    val localQR = qr.reduced(localA)
 
     assert(Utils.aboutEq(abs(r), abs(localQR.r)))
 
@@ -69,7 +69,7 @@ class TSQRSuite extends FunSuite with LocalSparkContext {
     val localA = A.collect()
 
     val (q, r) = new TSQR().qrQR(A)
-    val localQR = qr(localA)
+    val localQR = qr.reduced(localA)
 
     assert(Utils.aboutEq(abs(r), abs(localQR.r)))
 
